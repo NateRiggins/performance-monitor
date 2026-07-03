@@ -11,11 +11,30 @@ type Run = {
   has_field: boolean; crux_lcp_ms: number | null; crux_inp_ms: number | null; crux_cls: number | null; crux_category: string | null;
 };
 type Data = { site: any; latest: Record<string, Run>; history: Record<string, Run[]> };
+type PerfPlugin = { name: string; installed: boolean; active: boolean; version: string };
+type AgentData =
+  | { ok: true; install: string | null; agent: string | null; perf_plugins: Record<string, PerfPlugin> | null }
+  | { ok: false; error: string }
+  | null;
+const HEADLINE = ['wp-rocket', 'shortpixel', 'nitropack'];
 
 const tip = { contentStyle: { background: '#171717', border: '1px solid #404040', borderRadius: 8, fontSize: 12 }, labelStyle: { color: '#e5e5e5' } };
 const fmtMs = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`);
 const fmtCls = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(3));
 const bandCls = (b: Band) => b === 'good' ? 'text-green-400' : b === 'ni' ? 'text-yellow-400' : b === 'poor' ? 'text-red-400' : 'text-neutral-600';
+
+function PluginCard({ pp }: { pp: PerfPlugin }) {
+  const s = !pp.installed ? { label: 'Not installed', cls: 'text-neutral-500' }
+    : pp.active ? { label: 'Active', cls: 'text-green-400' }
+    : { label: 'Inactive', cls: 'text-yellow-400' };
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
+      <div className="text-sm font-semibold">{pp.name}</div>
+      <div className={`mt-1 text-lg font-bold ${s.cls}`}>{s.label}</div>
+      {pp.installed && pp.version && <div className="text-xs text-neutral-500">v{pp.version}</div>}
+    </div>
+  );
+}
 
 function ScoreBig({ s }: { s: number | null }) {
   const b = scoreBand(s);
@@ -81,6 +100,7 @@ export default function SiteDetail() {
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [agent, setAgent] = useState<AgentData>(null);
 
   const load = useCallback(() => {
     fetch(`/api/site/${encodeURIComponent(domain)}`).then((r) => r.json()).then((d) => {
@@ -88,6 +108,10 @@ export default function SiteDetail() {
     });
   }, [domain]);
   useEffect(() => { load(); }, [load]);
+  // Agent config (WPE install + perf plugins) — separate fetch so a slow Agent never blocks PSI data.
+  useEffect(() => {
+    fetch(`/api/site/${encodeURIComponent(domain)}/agent`).then((r) => r.json()).then(setAgent).catch(() => setAgent({ ok: false, error: 'unreachable' }));
+  }, [domain]);
 
   async function reMeasure() {
     setBusy(true); setMsg('Measuring… (~30–90s)');
@@ -118,6 +142,10 @@ export default function SiteDetail() {
             className="rounded bg-blue-600 px-3 py-1.5 font-medium text-white hover:bg-blue-500 disabled:opacity-60">
             {busy ? 'Measuring…' : 'Re-measure'}
           </button>
+          {agent?.ok && agent.install && (
+            <a href={`https://my.wpengine.com/installs/${encodeURIComponent(agent.install)}`} target="_blank" rel="noopener"
+              className="rounded border border-neutral-700 px-3 py-1.5 font-medium text-neutral-200 hover:border-neutral-500">WPE Overview ↗</a>
+          )}
           <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" className="text-blue-400 hover:underline">Open in PSI ↗</a>
           <Link href="/" className="text-neutral-400 hover:text-white">← Back</Link>
         </div>
@@ -128,6 +156,29 @@ export default function SiteDetail() {
         <StrategyPanel label="Mobile" run={data.latest.mobile} history={data.history.mobile ?? []} />
         <StrategyPanel label="Desktop" run={data.latest.desktop} history={data.history.desktop ?? []} />
       </div>
+
+      {/* Optimization plugins — only when the Agent supports it (≥1.2.16); hidden otherwise. */}
+      {agent?.ok && agent.perf_plugins && (() => {
+        const pp = agent.perf_plugins!;
+        const extras = Object.entries(pp).filter(([k, v]) => !HEADLINE.includes(k) && v.installed);
+        return (
+          <div>
+            <h2 className="mb-2 text-sm font-semibold">Optimization {agent.agent && <span className="font-normal text-neutral-500">· Agent {agent.agent}</span>}</h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {HEADLINE.map((k) => pp[k] && <PluginCard key={k} pp={pp[k]} />)}
+            </div>
+            {extras.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                {extras.map(([k, v]) => (
+                  <span key={k} className="rounded border border-neutral-700 px-2 py-1 text-neutral-300">
+                    {v.name}: <span className={v.active ? 'text-green-400' : 'text-neutral-500'}>{v.active ? 'active' : 'inactive'}</span>{v.version ? ` v${v.version}` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
