@@ -157,28 +157,39 @@ export default function SiteDetail() {
         <StrategyPanel label="Desktop" run={data.latest.desktop} history={data.history.desktop ?? []} />
       </div>
 
-      {/* Optimization plugins — only when the Agent supports it (≥1.2.16); hidden otherwise. */}
-      {agent?.ok && agent.perf_plugins && (() => {
-        const pp = agent.perf_plugins!;
-        const extras = Object.entries(pp).filter(([k, v]) => !HEADLINE.includes(k) && v.installed);
-        return (
-          <div>
-            <h2 className="mb-2 text-sm font-semibold">Optimization {agent.agent && <span className="font-normal text-neutral-500">· Agent {agent.agent}</span>}</h2>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {HEADLINE.map((k) => pp[k] && <PluginCard key={k} pp={pp[k]} />)}
-            </div>
-            {extras.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                {extras.map(([k, v]) => (
-                  <span key={k} className="rounded border border-neutral-700 px-2 py-1 text-neutral-300">
-                    {v.name}: <span className={v.active ? 'text-green-400' : 'text-neutral-500'}>{v.active ? 'active' : 'inactive'}</span>{v.version ? ` v${v.version}` : ''}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {/* Optimization — always rendered once the Agent check resolves, with a clear status
+          in every state (unreachable / too old / plugin cards) so the section is never invisible. */}
+      {agent && (
+        <div>
+          <h2 className="mb-2 text-sm font-semibold">Optimization
+            {agent.ok && agent.agent && <span className="font-normal text-neutral-500"> · Agent {agent.agent}</span>}
+          </h2>
+          {!agent.ok ? (
+            <p className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">AMG Agent not reachable on this site ({agent.error}) — plugin status unavailable.</p>
+          ) : !agent.perf_plugins ? (
+            <p className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">This site&apos;s Agent (v{agent.agent}) predates plugin reporting. Update to <span className="text-neutral-300">≥1.2.16</span> to see WP Rocket / ShortPixel / NitroPack status.</p>
+          ) : (() => {
+            const pp = agent.perf_plugins!;
+            const extras = Object.entries(pp).filter(([k, v]) => !HEADLINE.includes(k) && v.installed);
+            return (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {HEADLINE.map((k) => pp[k] && <PluginCard key={k} pp={pp[k]} />)}
+                </div>
+                {extras.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    {extras.map(([k, v]) => (
+                      <span key={k} className="rounded border border-neutral-700 px-2 py-1 text-neutral-300">
+                        {v.name}: <span className={v.active ? 'text-green-400' : 'text-neutral-500'}>{v.active ? 'active' : 'inactive'}</span>{v.version ? ` v${v.version}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
