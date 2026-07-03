@@ -85,16 +85,35 @@ export default function Dashboard() {
 
   if (!data) return <p className="text-neutral-500">Loading…</p>;
   const c = data.cards;
-  const dist = (['good', 'ni', 'poor'] as Band[]).map((b) => ({
-    name: b === 'good' ? 'Good (90+)' : b === 'ni' ? 'Needs work (50–89)' : 'Poor (<50)',
-    value: data.rows.filter((r) => scoreBand(r.mobile?.perf_score) === b).length, fill: BAND_HEX[b],
-  })).filter((d) => d.value > 0);
+  const distFor = (pick: (r: Row) => number | null | undefined) =>
+    (['good', 'ni', 'poor'] as Band[]).map((b) => ({
+      name: b === 'good' ? 'Good (90+)' : b === 'ni' ? 'Needs work (50–89)' : 'Poor (<50)',
+      value: data.rows.filter((r) => scoreBand(pick(r)) === b).length, fill: BAND_HEX[b],
+    })).filter((d) => d.value > 0);
+  const distMobile = distFor((r) => r.mobile?.perf_score);
+  const distDesktop = distFor((r) => r.desktop?.perf_score);
   const worst = data.rows.filter((r) => r.mobile?.perf_score != null).sort((a, b) => a.mobile!.perf_score! - b.mobile!.perf_score!).slice(0, 8)
     .map((r) => ({ name: (r.name || r.domain).slice(0, 22), score: r.mobile!.perf_score, fill: BAND_HEX[scoreBand(r.mobile!.perf_score)] }));
   const card = (n: any, l: string) => (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
       <div className="text-2xl font-bold">{n}</div>
       <div className="text-xs uppercase tracking-wide text-neutral-500">{l}</div>
+    </div>
+  );
+  const donut = (title: string, d: { name: string; value: number; fill: string }[]) => (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+      {d.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
+        <ResponsiveContainer width="100%" height={240}>
+          <PieChart>
+            <Pie data={d} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={82} paddingAngle={2}>
+              {d.map((x, i) => <Cell key={i} fill={x.fill} stroke="#171717" />)}
+            </Pie>
+            <Tooltip {...tip} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 
@@ -111,22 +130,12 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Poor mobile (<50)')}{card(c.field_coverage, 'Have field data')}
       </div>
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-2">
+        {donut('Desktop score distribution', distDesktop)}
+        {donut('Mobile score distribution', distMobile)}
+      </div>
+      <div className="grid gap-3">
         <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <h3 className="mb-3 text-sm font-semibold">Mobile score distribution</h3>
-          {dist.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={dist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={82} paddingAngle={2}>
-                  {dist.map((d, i) => <Cell key={i} fill={d.fill} stroke="#171717" />)}
-                </Pie>
-                <Tooltip {...tip} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
           <h3 className="mb-3 text-sm font-semibold">Lowest mobile scores</h3>
           {worst.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
             <ResponsiveContainer width="100%" height={Math.max(160, worst.length * 30)}>
@@ -158,8 +167,8 @@ export default function Dashboard() {
               <tr className="text-left text-neutral-400">
                 <th className="w-8 px-2 py-1">#</th>
                 <th onClick={() => clickCol('name')} className="cursor-pointer select-none px-2 py-1">Site{sortCol === 'name' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
-                <th onClick={() => clickCol('mscore')} className="cursor-pointer select-none px-2 py-1">Mobile{sortCol === 'mscore' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
                 <th onClick={() => clickCol('dscore')} className="cursor-pointer select-none px-2 py-1">Desktop{sortCol === 'dscore' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
+                <th onClick={() => clickCol('mscore')} className="cursor-pointer select-none px-2 py-1">Mobile{sortCol === 'mscore' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
                 <th className="px-2 py-1">LCP</th><th className="px-2 py-1">INP</th><th className="px-2 py-1">CLS</th><th className="px-2 py-1">Field</th>
                 <th onClick={() => clickCol('last')} className="cursor-pointer select-none px-2 py-1">Last run{sortCol === 'last' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
               </tr>
@@ -176,8 +185,8 @@ export default function Dashboard() {
                       <a href={PSI(r.domain)} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className="text-neutral-500">↗</a>
                       <div className="text-xs text-neutral-500">{r.domain}</div>
                     </td>
-                    <td className="px-2 py-1"><Score s={m?.perf_score} /></td>
                     <td className="px-2 py-1"><Score s={r.desktop?.perf_score} /></td>
+                    <td className="px-2 py-1"><Score s={m?.perf_score} /></td>
                     <td className="px-2 py-1"><Vital v={fmtMs(lcpOf(m))} b={band('lcp', lcpOf(m))} /></td>
                     <td className="px-2 py-1"><Vital v={fmtMs(inpOf(m))} b={band('inp', inpOf(m))} /></td>
                     <td className="px-2 py-1"><Vital v={fmtCls(clsOf(m))} b={band('cls', clsOf(m))} /></td>
