@@ -24,7 +24,6 @@ async function runOne(db: DB, site: { domain: string }, deadline: number) {
         lcp_ms: res.lcp_ms, cls: res.cls, tbt_ms: res.tbt_ms, fcp_ms: res.fcp_ms, si_ms: res.si_ms,
         has_field: res.has_field,
         crux_lcp_ms: res.crux_lcp_ms, crux_inp_ms: res.crux_inp_ms, crux_cls: res.crux_cls, crux_category: res.crux_category,
-        raw: res.raw,
       });
       ok++;
     } catch (e: any) {

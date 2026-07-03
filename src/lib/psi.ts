@@ -9,7 +9,6 @@ export type PsiResult = {
   lcp_ms: number | null; cls: number | null; tbt_ms: number | null; fcp_ms: number | null; si_ms: number | null;
   has_field: boolean;
   crux_lcp_ms: number | null; crux_inp_ms: number | null; crux_cls: number | null; crux_category: string | null;
-  raw: any;
 };
 
 const asInt = (v: any): number | null => (Number.isFinite(v) ? Math.round(v) : null);
@@ -58,6 +57,5 @@ export async function runPagespeed(url: string, strategy: Strategy): Promise<Psi
     crux_inp_ms: cruxPct(fm, 'INTERACTION_TO_NEXT_PAINT'),
     crux_cls: cruxCls == null ? null : cruxCls / 100, // percentile is ×100
     crux_category: fe?.overall_category ?? null,
-    raw: data,
   };
 }

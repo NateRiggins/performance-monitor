@@ -6,7 +6,10 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const db = supabaseAdmin();
   const { data: sites } = await db.from('pm_sites').select('domain,name,last_run,last_status').eq('include', true);
-  const { data: latest } = await db.from('pm_latest_runs').select('*');
+  // Explicit columns only — never '*' (which would drag the big per-run payload and
+  // make this query balloon as the fleet fills). Just the small metrics the table needs.
+  const { data: latest } = await db.from('pm_latest_runs')
+    .select('domain,strategy,perf_score,lcp_ms,cls,tbt_ms,fcp_ms,si_ms,has_field,crux_lcp_ms,crux_inp_ms,crux_cls,crux_category');
 
   // Pivot latest runs into { [domain]: { mobile, desktop } }.
   const byDomain = new Map<string, any>();

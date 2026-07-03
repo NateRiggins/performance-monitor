@@ -30,8 +30,7 @@ create table if not exists pm_runs (
   crux_lcp_ms int,
   crux_inp_ms int,
   crux_cls    numeric,
-  crux_category text,                       -- FAST | AVERAGE | SLOW (origin overall)
-  raw jsonb
+  crux_category text                        -- FAST | AVERAGE | SLOW (origin overall)
 );
 create index if not exists idx_pm_runs_domain on pm_runs(domain, strategy, fetched_at desc);
 
