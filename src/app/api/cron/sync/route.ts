@@ -13,7 +13,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
   try {
-    const out = await runSites({ maxMs: 240000 });
+    // 180s budget + worst-case one in-flight 90s PSI call = ~270s, safely under the 300s kill.
+    const out = await runSites({ maxMs: 180000 });
     return NextResponse.json({ ok: true, ...out });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, { status: 502 });

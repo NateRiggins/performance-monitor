@@ -7,8 +7,8 @@ export const maxDuration = 300; // Vercel Pro. PSI is slow; a full fleet won't f
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   try {
-    // Leave headroom under maxDuration so the function returns cleanly.
-    const out = await runSites({ domains: body.domains ?? null, force: !!body.force, maxMs: 270000 });
+    // 180s budget + worst-case one in-flight 90s PSI call = ~270s, safely under the 300s kill.
+    const out = await runSites({ domains: body.domains ?? null, force: !!body.force, maxMs: 180000 });
     return NextResponse.json({ ok: true, ...out });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, { status: 502 });

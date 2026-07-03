@@ -9,10 +9,13 @@ type DB = ReturnType<typeof supabaseAdmin>;
 const isFresh = (ts: any) => !!ts && Date.now() - new Date(ts).getTime() < FRESH_HOURS * 3600 * 1000;
 const urlFor = (domain: string) => `https://${domain}/`;
 
-async function runOne(db: DB, site: { domain: string }) {
+async function runOne(db: DB, site: { domain: string }, deadline: number) {
   const notes: string[] = [];
   let ok = 0;
   for (const strategy of STRATEGIES) {
+    // Check the clock BEFORE each PSI call (not just per-site) so a call started late
+    // can't push the function past Vercel's hard 300s kill → avoids 504s.
+    if (deadline && Date.now() > deadline) { notes.push(`${strategy}: skipped (time budget)`); continue; }
     try {
       const res = await runPagespeed(urlFor(site.domain), strategy);
       await db.from('pm_runs').insert({
@@ -50,15 +53,16 @@ export async function runSites({ domains = null, force = false, maxMs = 0 }: Run
   if (!force) queue = queue.filter((s) => !isFresh(s.last_run));
 
   const start = Date.now();
+  const deadline = maxMs > 0 ? start + maxMs : 0;
   const pending = queue.slice();
   const results: { domain: string; ok: number; notes: string[] }[] = [];
-  const budgetHit = () => maxMs > 0 && Date.now() - start > maxMs;
+  const budgetHit = () => deadline > 0 && Date.now() > deadline;
 
   const workers = Array.from({ length: CONCURRENCY }, async () => {
     while (pending.length) {
       if (budgetHit()) break;
       const s = pending.shift();
-      if (s) results.push(await runOne(db, s));
+      if (s) results.push(await runOne(db, s, deadline));
     }
   });
   await Promise.all(workers);
