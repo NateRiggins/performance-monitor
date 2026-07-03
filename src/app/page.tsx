@@ -130,12 +130,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Poor mobile (<50)')}{card(c.field_coverage, 'Have field data')}
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-4">
         {donut('Desktop score distribution', distDesktop)}
         {donut('Mobile score distribution', distMobile)}
-      </div>
-      <div className="grid gap-3">
-        <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
           <h3 className="mb-3 text-sm font-semibold">Lowest mobile scores</h3>
           {worst.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
             <ResponsiveContainer width="100%" height={Math.max(160, worst.length * 30)}>
