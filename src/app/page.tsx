@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ResponsiveContainer, PieChart, Pie, Cell, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { band, scoreBand, BAND_HEX, type Band } from '@/lib/vitals';
@@ -34,23 +34,76 @@ function Vital({ v, b }: { v: string; b: Band }) {
   return <span className={c}>{v}</span>;
 }
 
+// Charts depend only on the full row set, not on search/sort/filter. Memoized so those
+// interactions never re-render Recharts (the expensive part) — keeps input delay low.
+const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
+  const distFor = (pick: (r: Row) => number | null | undefined) =>
+    (['good', 'ni', 'poor'] as Band[]).map((b) => ({
+      name: b === 'good' ? 'Good (90+)' : b === 'ni' ? 'Needs work (50–89)' : 'Poor (<50)',
+      value: rows.filter((r) => scoreBand(pick(r)) === b).length, fill: BAND_HEX[b],
+    })).filter((d) => d.value > 0);
+  const distMobile = distFor((r) => r.mobile?.perf_score);
+  const distDesktop = distFor((r) => r.desktop?.perf_score);
+  const worst = rows.filter((r) => r.mobile?.perf_score != null).sort((a, b) => a.mobile!.perf_score! - b.mobile!.perf_score!).slice(0, 8)
+    .map((r) => ({ name: (r.name || r.domain).slice(0, 22), score: r.mobile!.perf_score, fill: BAND_HEX[scoreBand(r.mobile!.perf_score)] }));
+  const donut = (title: string, d: { name: string; value: number; fill: string }[]) => (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+      {d.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
+        <ResponsiveContainer width="100%" height={240}>
+          <PieChart>
+            <Pie data={d} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={82} paddingAngle={2}>
+              {d.map((x, i) => <Cell key={i} fill={x.fill} stroke="#171717" />)}
+            </Pie>
+            <Tooltip {...tip} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+  return (
+    <div className="grid gap-3 lg:grid-cols-4">
+      {donut('Desktop score distribution', distDesktop)}
+      {donut('Mobile score distribution', distMobile)}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
+        <h3 className="mb-3 text-sm font-semibold">Lowest mobile scores</h3>
+        {worst.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
+          <ResponsiveContainer width="100%" height={Math.max(160, worst.length * 30)}>
+            <BarChart data={worst} layout="vertical" margin={{ left: 8, right: 24 }}>
+              <CartesianGrid stroke="#262626" horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} tick={axisTick} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" tick={axisTick} width={150} axisLine={false} tickLine={false} />
+              <Tooltip {...tip} cursor={{ fill: '#ffffff10' }} formatter={(v: any) => [v, 'Mobile']} />
+              <Bar dataKey="score" radius={[0, 4, 4, 0]}>{worst.map((d, i) => <Cell key={i} fill={d.fill} />)}</Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export default function Dashboard() {
   const [data, setData] = useState<Data | null>(null);
   const [sortCol, setSortCol] = useState('mscore');
   const [sortDir, setSortDir] = useState(1);
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = () => fetch('/api/dashboard').then((r) => r.json()).then(setData);
   useEffect(() => { load(); }, []);
+  // Debounce search so the 271-row filter/sort recomputes after typing stops, not per keystroke.
+  useEffect(() => { const t = setTimeout(() => setDebouncedSearch(search), 200); return () => clearTimeout(t); }, [search]);
 
   const rows = useMemo(() => {
     if (!data) return [];
     let rs = data.rows.slice();
     if (filter) rs = rs.filter((r) => scoreBand(r.mobile?.perf_score) === filter);
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     if (q) rs = rs.filter((r) => `${r.name ?? ''} ${r.domain ?? ''}`.toLowerCase().includes(q));
     const key = (r: Row) => sortCol === 'mscore' ? r.mobile?.perf_score
       : sortCol === 'dscore' ? r.desktop?.perf_score
@@ -66,7 +119,7 @@ export default function Dashboard() {
       return String(av ?? '').localeCompare(String(bv ?? '')) * sortDir;
     });
     return rs;
-  }, [data, sortCol, sortDir, filter, search]);
+  }, [data, sortCol, sortDir, filter, debouncedSearch]);
 
   function clickCol(c: string) {
     if (c === sortCol) setSortDir(-sortDir);
@@ -85,35 +138,10 @@ export default function Dashboard() {
 
   if (!data) return <p className="text-neutral-500">Loading…</p>;
   const c = data.cards;
-  const distFor = (pick: (r: Row) => number | null | undefined) =>
-    (['good', 'ni', 'poor'] as Band[]).map((b) => ({
-      name: b === 'good' ? 'Good (90+)' : b === 'ni' ? 'Needs work (50–89)' : 'Poor (<50)',
-      value: data.rows.filter((r) => scoreBand(pick(r)) === b).length, fill: BAND_HEX[b],
-    })).filter((d) => d.value > 0);
-  const distMobile = distFor((r) => r.mobile?.perf_score);
-  const distDesktop = distFor((r) => r.desktop?.perf_score);
-  const worst = data.rows.filter((r) => r.mobile?.perf_score != null).sort((a, b) => a.mobile!.perf_score! - b.mobile!.perf_score!).slice(0, 8)
-    .map((r) => ({ name: (r.name || r.domain).slice(0, 22), score: r.mobile!.perf_score, fill: BAND_HEX[scoreBand(r.mobile!.perf_score)] }));
   const card = (n: any, l: string) => (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
       <div className="text-2xl font-bold">{n}</div>
       <div className="text-xs uppercase tracking-wide text-neutral-500">{l}</div>
-    </div>
-  );
-  const donut = (title: string, d: { name: string; value: number; fill: string }[]) => (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
-      {d.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
-        <ResponsiveContainer width="100%" height={240}>
-          <PieChart>
-            <Pie data={d} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={82} paddingAngle={2}>
-              {d.map((x, i) => <Cell key={i} fill={x.fill} stroke="#171717" />)}
-            </Pie>
-            <Tooltip {...tip} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-          </PieChart>
-        </ResponsiveContainer>
-      )}
     </div>
   );
 
@@ -130,24 +158,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Poor mobile (<50)')}{card(c.field_coverage, 'Have field data')}
       </div>
-      <div className="grid gap-3 lg:grid-cols-4">
-        {donut('Desktop score distribution', distDesktop)}
-        {donut('Mobile score distribution', distMobile)}
-        <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
-          <h3 className="mb-3 text-sm font-semibold">Lowest mobile scores</h3>
-          {worst.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
-            <ResponsiveContainer width="100%" height={Math.max(160, worst.length * 30)}>
-              <BarChart data={worst} layout="vertical" margin={{ left: 8, right: 24 }}>
-                <CartesianGrid stroke="#262626" horizontal={false} />
-                <XAxis type="number" domain={[0, 100]} tick={axisTick} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={axisTick} width={150} axisLine={false} tickLine={false} />
-                <Tooltip {...tip} cursor={{ fill: '#ffffff10' }} formatter={(v: any) => [v, 'Mobile']} />
-                <Bar dataKey="score" radius={[0, 4, 4, 0]}>{worst.map((d, i) => <Cell key={i} fill={d.fill} />)}</Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
+      <Charts rows={data.rows} />
       <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">Sites <span className="font-normal text-neutral-500">({rows.length})</span></h2>
