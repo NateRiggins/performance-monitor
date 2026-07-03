@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -79,12 +79,29 @@ export default function SiteDetail() {
   const domain = decodeURIComponent(String(params.domain ?? ''));
   const [data, setData] = useState<Data | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch(`/api/site/${encodeURIComponent(domain)}`).then((r) => r.json()).then((d) => {
       if (d.error) setNotFound(true); else setData(d);
     });
   }, [domain]);
+  useEffect(() => { load(); }, [load]);
+
+  async function reMeasure() {
+    setBusy(true); setMsg('Measuring… (~30–90s)');
+    try {
+      const d = await fetch('/api/sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domains: [domain], force: true }),
+      }).then((r) => r.json());
+      const r0 = d.results?.[0];
+      setMsg(d.ok ? `Done — ${r0?.ok ?? 0}/2${r0?.notes?.length ? ` (${r0.notes.join('; ')})` : ''}` : (d.error || 'failed'));
+      load();
+    } catch { setMsg('Run failed.'); }
+    setBusy(false);
+  }
 
   if (notFound) return <p className="text-neutral-500">Unknown site. <Link href="/" className="text-blue-400 hover:underline">← Back</Link></p>;
   if (!data) return <p className="text-neutral-500">Loading…</p>;
@@ -97,10 +114,15 @@ export default function SiteDetail() {
           <div className="text-sm text-neutral-500">{data.site.domain} · last run {data.site.last_run ? new Date(data.site.last_run).toLocaleString() : 'never'}</div>
         </div>
         <div className="flex items-center gap-3 text-sm">
+          <button onClick={reMeasure} disabled={busy}
+            className="rounded bg-blue-600 px-3 py-1.5 font-medium text-white hover:bg-blue-500 disabled:opacity-60">
+            {busy ? 'Measuring…' : 'Re-measure'}
+          </button>
           <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" className="text-blue-400 hover:underline">Open in PSI ↗</a>
           <Link href="/" className="text-neutral-400 hover:text-white">← Back</Link>
         </div>
       </div>
+      {msg && <div className="text-xs text-neutral-400">{msg}</div>}
       {data.site.last_status && <div className="text-xs text-neutral-500">{data.site.last_status}</div>}
       <div className="grid gap-3 md:grid-cols-2">
         <StrategyPanel label="Mobile" run={data.latest.mobile} history={data.history.mobile ?? []} />
