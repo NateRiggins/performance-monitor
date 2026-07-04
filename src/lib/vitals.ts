@@ -14,10 +14,10 @@ export function band(metric: 'lcp' | 'inp' | 'cls', value: number | null | undef
   return value <= t.good ? 'good' : value <= t.poor ? 'ni' : 'poor';
 }
 
-// Lighthouse performance score bands: >=90 good, 50-89 needs work, <50 poor.
+// Performance score bands: >=85 pass, 60-84 needs work, <60 critical.
 export function scoreBand(score: number | null | undefined): Band {
   if (score == null) return 'na';
-  return score >= 90 ? 'good' : score >= 50 ? 'ni' : 'poor';
+  return score >= 85 ? 'good' : score >= 60 ? 'ni' : 'poor';
 }
 
 export const BAND_HEX: Record<Band, string> = {

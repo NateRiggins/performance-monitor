@@ -35,7 +35,7 @@ export async function GET() {
       sites: rows.length,
       measured: rows.filter((r) => r.mobile || r.desktop).length,
       avg_mobile: mobileScores.length ? Math.round(mobileScores.reduce((a, b) => a + b, 0) / mobileScores.length) : null,
-      poor_mobile: rows.filter((r) => r.mobile?.perf_score != null && r.mobile.perf_score < 50).length,
+      poor_mobile: rows.filter((r) => r.mobile?.perf_score != null && r.mobile.perf_score < 60).length,
       field_coverage: rows.filter((r) => r.mobile?.has_field || r.desktop?.has_field).length,
     },
     rows,

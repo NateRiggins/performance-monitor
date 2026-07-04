@@ -39,7 +39,7 @@ function Vital({ v, b }: { v: string; b: Band }) {
 const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
   const distFor = (pick: (r: Row) => number | null | undefined) =>
     (['good', 'ni', 'poor'] as Band[]).map((b) => ({
-      name: b === 'good' ? 'Good' : b === 'ni' ? 'Needs work' : 'Poor',
+      name: b === 'good' ? 'Pass' : b === 'ni' ? 'Needs work' : 'Critical',
       value: rows.filter((r) => scoreBand(pick(r)) === b).length, fill: BAND_HEX[b],
     })).filter((d) => d.value > 0);
   const distMobile = distFor((r) => r.mobile?.perf_score);
@@ -166,7 +166,7 @@ export default function Dashboard() {
         <span className="text-xs text-neutral-400">{msg}</span>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Poor mobile (<50)')}{card(c.field_coverage, 'Have field data')}
+        {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Critical mobile (<60)')}{card(c.field_coverage, 'Have field data')}
       </div>
       <Charts rows={data.rows} />
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
@@ -176,7 +176,7 @@ export default function Dashboard() {
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sites…"
               className="w-52 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs outline-none focus:border-neutral-500" />
             <select value={filter} onChange={(e) => setFilter(e.target.value)} className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs">
-              <option value="">All</option><option value="good">Good</option><option value="ni">Needs work</option><option value="poor">Poor</option>
+              <option value="">All</option><option value="good">Pass</option><option value="ni">Needs work</option><option value="poor">Critical</option>
             </select>
           </div>
         </div>
