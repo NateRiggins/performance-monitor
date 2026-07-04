@@ -39,15 +39,17 @@ function Vital({ v, b }: { v: string; b: Band }) {
 const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
   const distFor = (pick: (r: Row) => number | null | undefined) =>
     (['good', 'ni', 'poor'] as Band[]).map((b) => ({
-      name: b === 'good' ? 'Good (90+)' : b === 'ni' ? 'Needs work (50–89)' : 'Poor (<50)',
+      name: b === 'good' ? 'Good' : b === 'ni' ? 'Needs work' : 'Poor',
       value: rows.filter((r) => scoreBand(pick(r)) === b).length, fill: BAND_HEX[b],
     })).filter((d) => d.value > 0);
   const distMobile = distFor((r) => r.mobile?.perf_score);
   const distDesktop = distFor((r) => r.desktop?.perf_score);
   const worst = rows.filter((r) => r.mobile?.perf_score != null).sort((a, b) => a.mobile!.perf_score! - b.mobile!.perf_score!).slice(0, 8)
     .map((r) => ({ name: (r.name || r.domain).slice(0, 22), score: r.mobile!.perf_score, fill: BAND_HEX[scoreBand(r.mobile!.perf_score)] }));
-  const donut = (title: string, d: { name: string; value: number; fill: string }[]) => (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+  const donut = (title: string, d: { name: string; value: number; fill: string }[]) => {
+    const total = d.reduce((a, x) => a + x.value, 0);
+    return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
       <h3 className="mb-3 text-sm font-semibold">{title}</h3>
       {d.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
         <ResponsiveContainer width="100%" height={240}>
@@ -55,18 +57,20 @@ const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
             <Pie data={d} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={82} paddingAngle={2}>
               {d.map((x, i) => <Cell key={i} fill={x.fill} stroke="#171717" />)}
             </Pie>
-            <Tooltip {...tip} />
+            {/* Hover shows each slice's share of the total (e.g. 45% of sites are Good). */}
+            <Tooltip {...tip} formatter={(v: any, n: any) => [`${total ? Math.round((Number(v) / total) * 100) : 0}% of sites`, n]} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
           </PieChart>
         </ResponsiveContainer>
       )}
     </div>
-  );
+    );
+  };
   return (
     <div className="grid gap-3 lg:grid-cols-4">
       {donut('Desktop score distribution', distDesktop)}
       {donut('Mobile score distribution', distMobile)}
-      <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
         <h3 className="mb-3 text-sm font-semibold">Lowest mobile scores</h3>
         {worst.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
           <ResponsiveContainer width="100%" height={Math.max(160, worst.length * 30)}>
@@ -139,27 +143,33 @@ export default function Dashboard() {
   if (!data) return <p className="text-neutral-500">Loading…</p>;
   const c = data.cards;
   const card = (n: any, l: string) => (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
-      <div className="text-2xl font-bold">{n}</div>
-      <div className="text-xs uppercase tracking-wide text-neutral-500">{l}</div>
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3">
+      <div className="text-xl font-bold tabular-nums">{n}</div>
+      <div className="text-[11px] uppercase tracking-wide text-neutral-500">{l}</div>
     </div>
   );
 
   return (
-    <div className="space-y-4">
-      {!data.has_key && <div className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm">No PageSpeed API key — add <code>PAGESPEED_API_KEY</code> (runs are heavily rate-limited without one). Then seed sites in Settings.</div>}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-neutral-500">{data.last_run ? `Last run: ${new Date(data.last_run).toLocaleString()}` : 'Never run'}</span>
+    <div className="mx-auto max-w-5xl space-y-5">
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Performance Monitor</h1>
+          <p className="mt-1 text-sm text-neutral-400">PageSpeed &amp; Core Web Vitals across the fleet.</p>
+        </div>
         <div className="flex items-center gap-3">
           <button onClick={sync} disabled={busy} className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-500 disabled:opacity-60">Run now</button>
-          <span className="text-xs text-neutral-400">{msg}</span>
         </div>
+      </header>
+      {!data.has_key && <div className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm">No PageSpeed API key — add <code>PAGESPEED_API_KEY</code> (runs are heavily rate-limited without one). Then seed sites in Settings.</div>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs text-neutral-500">{data.last_run ? `Last run: ${new Date(data.last_run).toLocaleString()}` : 'Never run'}</span>
+        <span className="text-xs text-neutral-400">{msg}</span>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Poor mobile (<50)')}{card(c.field_coverage, 'Have field data')}
       </div>
       <Charts rows={data.rows} />
-      <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">Sites <span className="font-normal text-neutral-500">({rows.length})</span></h2>
           <div className="flex items-center gap-2">
