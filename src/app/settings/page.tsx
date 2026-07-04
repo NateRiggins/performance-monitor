@@ -33,11 +33,14 @@ export default function Settings() {
   const included = data.sites.filter((s) => s.include).length;
 
   return (
-    <div className="max-w-4xl space-y-4">
-      <h1 className="text-xl font-semibold">Settings</h1>
-      {!data.has_key && <div className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm">No <code>PAGESPEED_API_KEY</code> set — runs will be heavily rate-limited.</div>}
+    <div className="mx-auto max-w-5xl space-y-5">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p className="mt-1 text-sm text-neutral-400">Seed the fleet from client domains and choose which sites are measured.</p>
+      </header>
+      {!data.has_key && <div className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm">No <code>PAGESPEED_API_KEY</code> set — runs will be heavily rate-limited.</div>}
 
-      <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold">Sites</h2>
