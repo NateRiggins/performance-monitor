@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { normDomain } from '@/lib/sites';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +19,22 @@ export async function GET() {
     e[r.strategy] = r;
     byDomain.set(r.domain, e);
   }
+  // WPE account/server per domain, from the shared fleet audit — lets the dashboard exclude the
+  // hosting-only servers (4/5, no NitroPack) from the aggregate scores.
+  const { data: fleet } = await db.from('cc_fleet_audit').select('domain,account');
+  const serverBy = new Map<string, string>();
+  for (const f of fleet ?? []) {
+    const nd = normDomain(f.domain as string);
+    if (nd && f.account && !serverBy.has(nd)) serverBy.set(nd, f.account as string);
+  }
+
   const rows = (sites ?? []).map((s) => {
     const e = byDomain.get(s.domain) ?? {};
-    return { domain: s.domain, name: s.name, last_run: s.last_run, last_status: s.last_status, mobile: e.mobile ?? null, desktop: e.desktop ?? null };
+    return {
+      domain: s.domain, name: s.name, last_run: s.last_run, last_status: s.last_status,
+      server: serverBy.get(normDomain(s.domain)) ?? null,
+      mobile: e.mobile ?? null, desktop: e.desktop ?? null,
+    };
   });
 
   const mobileScores = rows.map((r) => r.mobile?.perf_score).filter((n): n is number => n != null);

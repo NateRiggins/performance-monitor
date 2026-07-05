@@ -8,8 +8,11 @@ type Metric = {
   perf_score: number | null; lcp_ms: number | null; cls: number | null; tbt_ms: number | null;
   has_field: boolean; crux_lcp_ms: number | null; crux_inp_ms: number | null; crux_cls: number | null; crux_category: string | null;
 } | null;
-type Row = { domain: string; name: string; last_run: string | null; last_status: string | null; mobile: Metric; desktop: Metric };
+type Row = { domain: string; name: string; last_run: string | null; last_status: string | null; server: string | null; mobile: Metric; desktop: Metric };
 type Data = { cards: any; rows: Row[]; has_key: boolean; last_run: string };
+
+// Servers 4 & 5 are hosting-only clients (no NitroPack) — excluded by default so they don't drag the aggregate scores.
+const isHosting = (s: string | null) => s === 'amgclient4' || s === 'amgclient5';
 
 const PSI = (domain: string) => `https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${domain}/`)}`;
 const tip = { contentStyle: { background: '#171717', border: '1px solid #404040', borderRadius: 8, fontSize: 12 }, labelStyle: { color: '#e5e5e5' } };
@@ -97,15 +100,22 @@ export default function Dashboard() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [hideHosting, setHideHosting] = useState(true);
 
   const load = () => fetch('/api/dashboard').then((r) => r.json()).then(setData);
   useEffect(() => { load(); }, []);
   // Debounce search so the 271-row filter/sort recomputes after typing stops, not per keystroke.
   useEffect(() => { const t = setTimeout(() => setDebouncedSearch(search), 200); return () => clearTimeout(t); }, [search]);
 
+  // Base set for the WHOLE dashboard (cards + charts + table). Excludes hosting-only servers when toggled.
+  const base = useMemo(() => {
+    if (!data) return [];
+    return hideHosting ? data.rows.filter((r) => !isHosting(r.server)) : data.rows;
+  }, [data, hideHosting]);
+
   const rows = useMemo(() => {
     if (!data) return [];
-    let rs = data.rows.slice();
+    let rs = base.slice();
     if (filter) rs = rs.filter((r) => scoreBand(r.mobile?.perf_score) === filter);
     const q = debouncedSearch.trim().toLowerCase();
     if (q) rs = rs.filter((r) => `${r.name ?? ''} ${r.domain ?? ''}`.toLowerCase().includes(q));
@@ -123,7 +133,7 @@ export default function Dashboard() {
       return String(av ?? '').localeCompare(String(bv ?? '')) * sortDir;
     });
     return rs;
-  }, [data, sortCol, sortDir, filter, debouncedSearch]);
+  }, [data, base, sortCol, sortDir, filter, debouncedSearch]);
 
   function clickCol(c: string) {
     if (c === sortCol) setSortDir(-sortDir);
@@ -141,7 +151,15 @@ export default function Dashboard() {
   }
 
   if (!data) return <p className="text-neutral-500">Loading…</p>;
-  const c = data.cards;
+  const hiddenCount = data.rows.filter((r) => isHosting(r.server)).length;
+  const mScores = base.map((r) => r.mobile?.perf_score).filter((n): n is number => n != null);
+  const c = {
+    sites: base.length,
+    measured: base.filter((r) => r.mobile || r.desktop).length,
+    avg_mobile: mScores.length ? Math.round(mScores.reduce((a, b) => a + b, 0) / mScores.length) : null,
+    poor_mobile: base.filter((r) => r.mobile?.perf_score != null && r.mobile.perf_score < 60).length,
+    field_coverage: base.filter((r) => r.mobile?.has_field || r.desktop?.has_field).length,
+  };
   const card = (n: any, l: string) => (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3">
       <div className="text-xl font-bold tabular-nums">{n}</div>
@@ -163,12 +181,18 @@ export default function Dashboard() {
       {!data.has_key && <div className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm">No PageSpeed API key — add <code>PAGESPEED_API_KEY</code> (runs are heavily rate-limited without one). Then seed sites in Settings.</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-xs text-neutral-500">{data.last_run ? `Last run: ${new Date(data.last_run).toLocaleString()}` : 'Never run'}</span>
-        <span className="text-xs text-neutral-400">{msg}</span>
+        <div className="flex items-center gap-3">
+          {msg && <span className="text-xs text-neutral-400">{msg}</span>}
+          <label className="flex items-center gap-1.5 text-xs text-neutral-400" title="Servers 4 & 5 are hosting-only (no NitroPack). Excluding them keeps the aggregate scores representative of managed clients.">
+            <input type="checkbox" checked={hideHosting} onChange={(e) => setHideHosting(e.target.checked)} className="accent-blue-600" />
+            Exclude hosting-only (srv 4/5){hiddenCount ? ` · ${hiddenCount} hidden` : ''}
+          </label>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Critical mobile (<60)')}{card(c.field_coverage, 'Have field data')}
       </div>
-      <Charts rows={data.rows} />
+      <Charts rows={base} />
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">Sites <span className="font-normal text-neutral-500">({rows.length})</span></h2>
