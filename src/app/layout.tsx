@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import './globals.css';
+import SuiteFooter from '@/components/SuiteFooter';
 
 export const metadata: Metadata = {
   title: 'Performance Monitor',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-neutral-950 text-neutral-100 antialiased">
+      <body className="flex min-h-screen flex-col bg-neutral-950 text-neutral-100 antialiased">
         <header className="flex items-center gap-6 border-b border-neutral-800 px-5 py-3">
           <span className="font-semibold">⚡ Performance Monitor</span>
           <nav className="flex gap-4 text-sm">
@@ -18,7 +19,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/settings" className="text-neutral-300 hover:text-white">Settings</Link>
           </nav>
         </header>
-        <main className="p-5">{children}</main>
+        <main className="flex-1 p-5">{children}</main>
+        <SuiteFooter />
       </body>
     </html>
   );
