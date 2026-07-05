@@ -1,14 +1,15 @@
 // Google Core Web Vitals thresholds (good / needs-improvement / poor).
 // LCP & INP in ms; CLS unitless. https://web.dev/articles/vitals
-export const CWV: Record<'lcp' | 'inp' | 'cls', { good: number; poor: number }> = {
+export const CWV: Record<'lcp' | 'inp' | 'cls' | 'tbt', { good: number; poor: number }> = {
   lcp: { good: 2500, poor: 4000 },
   inp: { good: 200, poor: 500 },
   cls: { good: 0.1, poor: 0.25 },
+  tbt: { good: 200, poor: 600 },   // Lighthouse lab TBT (ms) — proxy for INP
 };
 
 export type Band = 'good' | 'ni' | 'poor' | 'na';
 
-export function band(metric: 'lcp' | 'inp' | 'cls', value: number | null | undefined): Band {
+export function band(metric: 'lcp' | 'inp' | 'cls' | 'tbt', value: number | null | undefined): Band {
   if (value == null) return 'na';
   const t = CWV[metric];
   return value <= t.good ? 'good' : value <= t.poor ? 'ni' : 'poor';

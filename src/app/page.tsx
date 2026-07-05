@@ -188,7 +188,7 @@ export default function Dashboard() {
                 <th onClick={() => clickCol('name')} className="cursor-pointer select-none px-2 py-1">Site{sortCol === 'name' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
                 <th onClick={() => clickCol('dscore')} className="cursor-pointer select-none px-2 py-1">Desktop{sortCol === 'dscore' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
                 <th onClick={() => clickCol('mscore')} className="cursor-pointer select-none px-2 py-1">Mobile{sortCol === 'mscore' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
-                <th className="px-2 py-1">LCP</th><th className="px-2 py-1">INP</th><th className="px-2 py-1">CLS</th><th className="px-2 py-1">Field</th>
+                <th className="px-2 py-1">LCP</th><th className="px-2 py-1">INP</th><th className="px-2 py-1">CLS</th><th className="px-2 py-1" title="Total Blocking Time (Lighthouse lab)">TBT</th>
                 <th onClick={() => clickCol('last')} className="cursor-pointer select-none px-2 py-1">Last run{sortCol === 'last' ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>
               </tr>
             </thead>
@@ -209,7 +209,7 @@ export default function Dashboard() {
                     <td className="px-2 py-1"><Vital v={fmtMs(lcpOf(m))} b={band('lcp', lcpOf(m))} /></td>
                     <td className="px-2 py-1"><Vital v={fmtMs(inpOf(m))} b={band('inp', inpOf(m))} /></td>
                     <td className="px-2 py-1"><Vital v={fmtCls(clsOf(m))} b={band('cls', clsOf(m))} /></td>
-                    <td className="px-2 py-1 text-xs">{m?.has_field ? <span className="text-green-400">field</span> : <span className="text-neutral-600">lab</span>}</td>
+                    <td className="px-2 py-1"><Vital v={fmtMs(m?.tbt_ms)} b={band('tbt', m?.tbt_ms)} /></td>
                     <td className="px-2 py-1 text-neutral-500">{r.last_run ? new Date(r.last_run).toLocaleDateString() : 'never'}</td>
                   </tr>
                 );
@@ -217,7 +217,7 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-neutral-600">LCP/INP/CLS show real-user <span className="text-green-400">field</span> data when available, else <span className="text-neutral-400">lab</span>. INP is field-only.</p>
+        <p className="mt-2 text-xs text-neutral-600">LCP/INP/CLS show real-user <span className="text-green-400">field</span> data when available, else <span className="text-neutral-400">lab</span>. INP is field-only; TBT is lab.</p>
       </div>
     </div>
   );
