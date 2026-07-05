@@ -25,3 +25,18 @@ export async function refreshSites(): Promise<{ added: number; total: number }> 
   const { count } = await db.from('pm_sites').select('*', { count: 'exact', head: true });
   return { added: rows.length, total: count ?? rows.length };
 }
+
+// The WPE account/server a domain runs on (e.g. "amgclient4"), from the shared fleet audit that
+// Command Center maintains. Surfaced on the detail page so you can see the server before trying an
+// optimizer — e.g. NitroPack isn't available on servers 4 & 5. Returns null if the site isn't in
+// the fleet audit yet.
+export async function lookupServer(domain: string): Promise<string | null> {
+  const d = normDomain(domain);
+  const { data } = await supabaseAdmin()
+    .from('cc_fleet_audit')
+    .select('domain, account')
+    .in('domain', [d, `www.${d}`]);
+  const rows = data ?? [];
+  const row = rows.find((r) => r.account) ?? rows[0];
+  return (row?.account as string | undefined) ?? null;
+}

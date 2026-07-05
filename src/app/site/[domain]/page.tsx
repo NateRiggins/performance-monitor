@@ -16,8 +16,8 @@ type Run = {
 type Data = { site: any; latest: Record<string, Run>; history: Record<string, Run[]> };
 type PerfPlugin = { name: string; installed: boolean; active: boolean; version: string };
 type AgentData =
-  | { ok: true; install: string | null; agent: string | null; perf_plugins: Record<string, PerfPlugin> | null }
-  | { ok: false; error: string }
+  | { ok: true; install: string | null; agent: string | null; perf_plugins: Record<string, PerfPlugin> | null; server: string | null }
+  | { ok: false; error: string; server?: string | null }
   | null;
 const HEADLINE = ['wp-rocket', 'shortpixel', 'nitropack'];
 
@@ -135,7 +135,18 @@ function TrendChart({ mob, desk }: { mob: Run[]; desk: Run[] }) {
   );
 }
 
-function PluginCard({ pp }: { pp: PerfPlugin }) {
+function PluginCard({ pp, unavailable, note }: { pp: PerfPlugin; unavailable?: boolean; note?: string }) {
+  // Unavailable = this optimizer can't run on the site's server (e.g. NitroPack on servers 4/5),
+  // so we never present it as a to-do "Not installed".
+  if (unavailable) {
+    return (
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3">
+        <div className="flex items-center gap-2 text-sm font-semibold"><span className="h-2 w-2 rounded-full bg-neutral-700" />{pp.name}</div>
+        <div className="mt-1 text-lg font-bold text-neutral-500">Not available</div>
+        {note && <div className="text-xs text-amber-500/90">{note}</div>}
+      </div>
+    );
+  }
   const s = !pp.installed ? { label: 'Not installed', cls: 'text-neutral-500', dot: 'bg-neutral-600' }
     : pp.active ? { label: 'Active', cls: 'text-green-400', dot: 'bg-green-400' }
     : { label: 'Inactive', cls: 'text-yellow-400', dot: 'bg-yellow-400' };
@@ -188,6 +199,10 @@ export default function SiteDetail() {
   const worst = Math.min(...[m?.perf_score, d?.perf_score].filter((x): x is number => x != null));
   const accent = Number.isFinite(worst) ? BAND_HEX[scoreBand(worst)] : '#3b82f6';
 
+  // Server (WPE account) drives optimizer availability. NitroPack isn't offered on servers 4 & 5.
+  const server = agent?.server ?? null;
+  const nitroBlocked = server === 'amgclient4' || server === 'amgclient5';
+
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       {/* Header with an accent bar tinted by the worse of the two scores */}
@@ -196,7 +211,11 @@ export default function SiteDetail() {
         <div className="flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{data.site.name || data.site.domain}</h1>
-            <div className="mt-0.5 text-sm text-neutral-500">{data.site.domain} · last run {data.site.last_run ? new Date(data.site.last_run).toLocaleString() : 'never'}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-neutral-500">
+              <span>{data.site.domain}</span>
+              {server && <span className="rounded border border-neutral-700 px-1.5 py-0.5 text-xs text-neutral-300" title="WPE account / server">🖥 {server}</span>}
+              <span>· last run {data.site.last_run ? new Date(data.site.last_run).toLocaleString() : 'never'}</span>
+            </div>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <button onClick={reMeasure} disabled={busy}
@@ -237,7 +256,19 @@ export default function SiteDetail() {
             return (
               <>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {HEADLINE.map((k) => pp[k] && <PluginCard key={k} pp={pp[k]} />)}
+                  {HEADLINE.map((k) => {
+                    const blocked = k === 'nitropack' && nitroBlocked;
+                    const p = pp[k];
+                    if (!p && !blocked) return null;
+                    return (
+                      <PluginCard
+                        key={k}
+                        pp={p ?? { name: 'NitroPack', installed: false, active: false, version: '' }}
+                        unavailable={blocked}
+                        note={blocked ? `Not offered on ${server}` : undefined}
+                      />
+                    );
+                  })}
                 </div>
                 {extras.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
