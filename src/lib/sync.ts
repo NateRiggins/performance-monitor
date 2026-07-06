@@ -37,11 +37,10 @@ async function runOne(db: DB, site: { domain: string }, deadline: number): Promi
     }
   }
   const status = ((ok ? `ok: ${ok}/${STRATEGIES.length}` : 'error') + (notes.length ? ` | ${notes.join('; ')}` : '')).slice(0, 200);
-  // Only advance last_run when something actually succeeded — otherwise a total failure
-  // (e.g. a bad API key) would look "fresh" to the freshness guard and never retry.
-  const update: { last_status: string; last_run?: string } = { last_status: status };
-  if (ok > 0) update.last_run = new Date().toISOString();
-  await db.from('pm_sites').update(update).eq('domain', site.domain);
+  // Advance last_run even on total failure so a persistently-broken site (e.g. NO_FCP, unreachable)
+  // backs off to the freshness window (~20h) instead of being re-picked by the oldest-first cron every
+  // tick. Recovery is still immediate: "Run now" / Re-measure use force=true, which bypasses freshness.
+  await db.from('pm_sites').update({ last_status: status, last_run: new Date().toISOString() }).eq('domain', site.domain);
   return { domain: site.domain, ok, notes, scores };
 }
 
