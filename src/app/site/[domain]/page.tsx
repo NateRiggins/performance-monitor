@@ -20,6 +20,8 @@ type AgentData =
   | { ok: false; error: string; server?: string | null }
   | null;
 const HEADLINE = ['wp-rocket', 'shortpixel', 'nitropack'];
+type DiagItem = { id: string; title: string; savingsMs: number | null; displayValue: string; fix: string | null };
+type Diagnosis = { strategy: string; score: number | null; opportunities: DiagItem[]; diagnostics: DiagItem[]; fetchedAt: string };
 
 const tip = { contentStyle: { background: '#171717', border: '1px solid #404040', borderRadius: 8, fontSize: 12 }, labelStyle: { color: '#e5e5e5' } };
 const fmtMs = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`);
@@ -167,6 +169,10 @@ export default function SiteDetail() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [agent, setAgent] = useState<AgentData>(null);
+  const [diag, setDiag] = useState<Diagnosis | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagStrategy, setDiagStrategy] = useState<'mobile' | 'desktop'>('mobile');
+  const [diagErr, setDiagErr] = useState('');
 
   const load = useCallback(() => {
     fetch(`/api/site/${encodeURIComponent(domain)}`).then((r) => r.json()).then((d) => {
@@ -190,6 +196,16 @@ export default function SiteDetail() {
       load();
     } catch { setMsg('Run failed.'); }
     setBusy(false);
+  }
+
+  // On-demand Lighthouse diagnosis — fresh PSI pull, does NOT touch the stored score/history.
+  async function analyze(strategy: 'mobile' | 'desktop') {
+    setDiagBusy(true); setDiagErr(''); setDiagStrategy(strategy);
+    try {
+      const d = await fetch(`/api/site/${encodeURIComponent(domain)}/diagnose?strategy=${strategy}`).then((r) => r.json());
+      if (d.error) { setDiagErr(d.error); setDiag(null); } else setDiag(d);
+    } catch { setDiagErr('analysis failed'); }
+    setDiagBusy(false);
   }
 
   if (notFound) return <p className="text-neutral-500">Unknown site. <Link href="/" className="text-blue-400 hover:underline">← Back</Link></p>;
@@ -284,6 +300,74 @@ export default function SiteDetail() {
           })()}
         </div>
       )}
+
+      {/* Diagnosis — on-demand fresh Lighthouse pull (free); does not touch the stored score. */}
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Diagnosis
+            {diag && <span className="font-normal text-neutral-500"> · {diag.strategy} · Lighthouse {diag.score ?? '—'}</span>}
+          </h2>
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded border border-neutral-700 text-xs">
+              {(['mobile', 'desktop'] as const).map((s) => (
+                <button key={s} onClick={() => analyze(s)} disabled={diagBusy}
+                  className={`px-2 py-1 ${diag && diag.strategy === s ? 'bg-neutral-700 text-white' : 'text-neutral-300 hover:bg-neutral-800'}`}>{s}</button>
+              ))}
+            </div>
+            <button onClick={() => analyze(diagStrategy)} disabled={diagBusy}
+              className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60">
+              {diagBusy ? 'Analyzing…' : diag ? 'Re-analyze' : 'Analyze'}
+            </button>
+          </div>
+        </div>
+        {diagErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{diagErr}</p>}
+        {!diag && !diagBusy && !diagErr && (
+          <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">
+            Run a fresh Lighthouse analysis to see opportunities &amp; diagnostics, each mapped to a WP Rocket / NitroPack / ShortPixel fix. Free, and separate from Re-measure — it doesn&apos;t change the stored score.
+          </p>
+        )}
+        {diagBusy && !diag && <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">Analyzing… (~30–90s)</p>}
+        {diag && (
+          <div className="space-y-3">
+            {diag.opportunities.length > 0 && (
+              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Opportunities</h3>
+                <div className="space-y-2">
+                  {diag.opportunities.map((o) => (
+                    <div key={o.id} className="border-t border-neutral-800 pt-2 first:border-0 first:pt-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-medium">{o.title}</span>
+                        {o.savingsMs != null && <span className="shrink-0 rounded bg-amber-900/50 px-1.5 py-0.5 text-xs font-semibold text-amber-300">~{(o.savingsMs / 1000).toFixed(2)}s</span>}
+                      </div>
+                      {o.displayValue && <div className="text-xs text-neutral-500">{o.displayValue}</div>}
+                      {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {diag.diagnostics.length > 0 && (
+              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Diagnostics</h3>
+                <div className="space-y-2">
+                  {diag.diagnostics.map((o) => (
+                    <div key={o.id} className="border-t border-neutral-800 pt-2 first:border-0 first:pt-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-medium">{o.title}</span>
+                        {o.displayValue && <span className="shrink-0 text-xs text-neutral-400">{o.displayValue}</span>}
+                      </div>
+                      {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {diag.opportunities.length === 0 && diag.diagnostics.length === 0 && (
+              <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-green-400">No significant opportunities — this page is well-optimized. 🎉</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
