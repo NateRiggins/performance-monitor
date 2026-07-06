@@ -137,30 +137,6 @@ function TrendChart({ mob, desk }: { mob: Run[]; desk: Run[] }) {
   );
 }
 
-function PluginCard({ pp, unavailable, note }: { pp: PerfPlugin; unavailable?: boolean; note?: string }) {
-  // Unavailable = this optimizer can't run on the site's server (e.g. NitroPack on servers 4/5),
-  // so we never present it as a to-do "Not installed".
-  if (unavailable) {
-    return (
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-semibold"><span className="h-2 w-2 rounded-full bg-neutral-700" />{pp.name}</div>
-        <div className="mt-1 text-lg font-bold text-neutral-500">Not available</div>
-        {note && <div className="text-xs text-amber-500/90">{note}</div>}
-      </div>
-    );
-  }
-  const s = !pp.installed ? { label: 'Not installed', cls: 'text-neutral-500', dot: 'bg-neutral-600' }
-    : pp.active ? { label: 'Active', cls: 'text-green-400', dot: 'bg-green-400' }
-    : { label: 'Inactive', cls: 'text-yellow-400', dot: 'bg-yellow-400' };
-  return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3">
-      <div className="flex items-center gap-2 text-sm font-semibold"><span className={`h-2 w-2 rounded-full ${s.dot}`} />{pp.name}</div>
-      <div className={`mt-1 text-lg font-bold ${s.cls}`}>{s.label}</div>
-      {pp.installed && pp.version && <div className="text-xs text-neutral-500">v{pp.version}</div>}
-    </div>
-  );
-}
-
 // --- Title-bar icon buttons -------------------------------------------------
 const ICON_BTN = 'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-700 text-neutral-300 transition-colors hover:border-neutral-500 hover:bg-neutral-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50';
 // Real product logos via Google's favicon service (nothing bundled, so they stay current).
@@ -403,52 +379,6 @@ export default function SiteDetail() {
         <h3 className="mb-1 text-sm font-semibold">Activity log</h3>
         <p className="text-sm text-neutral-600">Coming soon — a log of measurements, analyses, and score changes for this site.</p>
       </div>
-
-      {/* Optimization — always rendered once the Agent check resolves, with a clear status. */}
-      {agent && (
-        <div>
-          <h2 className="mb-2 text-sm font-semibold">Optimization
-            {agent.ok && agent.agent && <span className="font-normal text-neutral-500"> · Agent {agent.agent}</span>}
-          </h2>
-          {!agent.ok ? (
-            <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">AMG Agent not reachable on this site ({agent.error}) — plugin status unavailable.</p>
-          ) : !agent.perf_plugins ? (
-            <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">This site&apos;s Agent (v{agent.agent}) predates plugin reporting. Update to <span className="text-neutral-300">≥1.2.16</span> to see WP Rocket / ShortPixel / NitroPack status.</p>
-          ) : (() => {
-            const pp = agent.perf_plugins!;
-            const extras = Object.entries(pp).filter(([k, v]) => !HEADLINE.includes(k) && v.installed);
-            return (
-              <>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {HEADLINE.map((k) => {
-                    const blocked = k === 'nitropack' && nitroBlocked;
-                    const p = pp[k];
-                    if (!p && !blocked) return null;
-                    return (
-                      <PluginCard
-                        key={k}
-                        pp={p ?? { name: 'NitroPack', installed: false, active: false, version: '' }}
-                        unavailable={blocked}
-                        note={blocked ? `Not offered on ${server}` : undefined}
-                      />
-                    );
-                  })}
-                </div>
-                {extras.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    {extras.map(([k, v]) => (
-                      <span key={k} className="rounded border border-neutral-700 px-2 py-1 text-neutral-300">
-                        {v.name}: <span className={v.active ? 'text-green-400' : 'text-neutral-500'}>{v.active ? 'active' : 'inactive'}</span>{v.version ? ` v${v.version}` : ''}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      )}
-
     </div>
   );
 }
