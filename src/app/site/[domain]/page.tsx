@@ -161,6 +161,55 @@ function PluginCard({ pp, unavailable, note }: { pp: PerfPlugin; unavailable?: b
   );
 }
 
+// --- Title-bar icon buttons -------------------------------------------------
+const ICON_BTN = 'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-700 text-neutral-300 transition-colors hover:border-neutral-500 hover:bg-neutral-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50';
+// Real product logos via Google's favicon service (nothing bundled, so they stay current).
+const favicon = (d: string) => `https://www.google.com/s2/favicons?domain=${d}&sz=64`;
+const PLUGIN_LABEL: Record<string, string> = { 'wp-rocket': 'WP Rocket', shortpixel: 'ShortPixel', nitropack: 'NitroPack' };
+
+const IconRefresh = ({ spin }: { spin?: boolean }) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={spin ? 'animate-spin' : ''} aria-hidden>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" />
+  </svg>
+);
+const IconAnalyze = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M3 12h4l2.5 6 4-12 2.5 6H21" />
+  </svg>
+);
+const IconBack = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+);
+const IconMonitor = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" />
+  </svg>
+);
+const IconPhone = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="7" y="2" width="10" height="20" rx="2" /><path d="M11 18h2" />
+  </svg>
+);
+
+const Spinner = ({ label }: { label?: string }) => (
+  <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900 text-sm text-neutral-500">
+    <span className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />
+    {label && <span>{label}</span>}
+  </div>
+);
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'never';
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60); if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60); if (h < 24) return h === 1 ? '1 hour ago' : `${h} hours ago`;
+  const d = Math.floor(h / 24); if (d < 30) return d === 1 ? '1 day ago' : `${d} days ago`;
+  const mo = Math.floor(d / 30); return mo === 1 ? '1 month ago' : `${mo} months ago`;
+}
+
 export default function SiteDetail() {
   const params = useParams();
   const domain = decodeURIComponent(String(params.domain ?? ''));
@@ -171,7 +220,7 @@ export default function SiteDetail() {
   const [agent, setAgent] = useState<AgentData>(null);
   const [diag, setDiag] = useState<Diagnosis | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
-  const [diagStrategy, setDiagStrategy] = useState<'mobile' | 'desktop'>('mobile');
+  const [diagStrategy, setDiagStrategy] = useState<'mobile' | 'desktop'>('desktop');
   const [diagErr, setDiagErr] = useState('');
 
   const load = useCallback(() => {
@@ -200,7 +249,9 @@ export default function SiteDetail() {
 
   // On-demand Lighthouse diagnosis — fresh PSI pull, does NOT touch the stored score/history.
   async function analyze(strategy: 'mobile' | 'desktop') {
-    setDiagBusy(true); setDiagErr(''); setDiagStrategy(strategy);
+    setDiagBusy(true); setDiagErr('');
+    if (strategy !== diagStrategy) setDiag(null); // switching tabs: don't show the other form-factor's data while loading
+    setDiagStrategy(strategy);
     try {
       const d = await fetch(`/api/site/${encodeURIComponent(domain)}/diagnose?strategy=${strategy}`).then((r) => r.json());
       if (d.error) { setDiagErr(d.error); setDiag(null); } else setDiag(d);
@@ -218,36 +269,127 @@ export default function SiteDetail() {
   // Server (WPE account) drives optimizer availability. NitroPack isn't offered on servers 4 & 5.
   const server = agent?.server ?? null;
   const nitroBlocked = server === 'amgclient4' || server === 'amgclient5';
+  const diagOpen = !!(diag || diagBusy || diagErr);
+
+  // Compact plugin state for the status strip.
+  const pluginStat = (k: string) => {
+    if (k === 'nitropack' && nitroBlocked) return { dot: 'bg-neutral-600', label: 'N/A', cls: 'text-neutral-500' };
+    const p = agent?.ok ? agent.perf_plugins?.[k] : null;
+    if (!p) return { dot: 'bg-neutral-700', label: '—', cls: 'text-neutral-600' };
+    if (!p.installed) return { dot: 'bg-neutral-600', label: 'off', cls: 'text-neutral-500' };
+    return p.active ? { dot: 'bg-green-400', label: 'on', cls: 'text-green-400' } : { dot: 'bg-yellow-400', label: 'idle', cls: 'text-yellow-400' };
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      {/* Header with an accent bar tinted by the worse of the two scores */}
+      {/* Title bar — name + icon actions, with a status strip below. Accent tinted by the worse score. */}
       <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
         <div className="h-1" style={{ background: accent }} />
-        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{data.site.name || data.site.domain}</h1>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-neutral-500">
-              <span>{data.site.domain}</span>
-              {server && <span className="rounded border border-neutral-700 px-1.5 py-0.5 text-xs text-neutral-300" title="WPE account / server">🖥 {server}</span>}
-              <span>· last run {data.site.last_run ? new Date(data.site.last_run).toLocaleString() : 'never'}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <button onClick={reMeasure} disabled={busy}
-              className="rounded bg-blue-600 px-3 py-1.5 font-medium text-white hover:bg-blue-500 disabled:opacity-60">
-              {busy ? 'Measuring…' : 'Re-measure'}
-            </button>
+        <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-3">
+          <h1 className="truncate text-xl font-semibold tracking-tight">{data.site.name || data.site.domain}</h1>
+          <div className="flex shrink-0 items-center gap-2">
+            <button onClick={reMeasure} disabled={busy} title="Re-measure — refresh the stored score" className={ICON_BTN}><IconRefresh spin={busy} /></button>
+            <button onClick={() => analyze(diagStrategy)} disabled={diagBusy} title={diagOpen ? 'Re-analyze' : 'Analyze — Lighthouse diagnosis'} className={ICON_BTN}><IconAnalyze /></button>
+            <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className={ICON_BTN}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={favicon('pagespeed.web.dev')} alt="PSI" width={18} height={18} />
+            </a>
             {agent?.ok && agent.install && (
-              <a href={`https://my.wpengine.com/installs/${encodeURIComponent(agent.install)}`} target="_blank" rel="noopener"
-                className="rounded border border-neutral-700 px-3 py-1.5 font-medium text-neutral-200 hover:border-neutral-500">WPE Overview ↗</a>
+              <a href={`https://my.wpengine.com/installs/${encodeURIComponent(agent.install)}`} target="_blank" rel="noopener" title="WP Engine overview" className={ICON_BTN}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={favicon('wpengine.com')} alt="WPE" width={18} height={18} />
+              </a>
             )}
-            <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" className="text-blue-400 hover:underline">Open in PSI ↗</a>
-            <Link href="/" className="text-neutral-400 hover:text-white">← Back</Link>
+            <Link href="/" title="Back to fleet" className={ICON_BTN}><IconBack /></Link>
           </div>
         </div>
-        {msg && <div className="px-5 pb-3 text-xs text-neutral-400">{msg}</div>}
+        {/* Status strip */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-neutral-800 px-5 py-2.5 text-xs">
+          <a href={`https://${data.site.domain}/`} target="_blank" rel="noopener" className="font-medium text-neutral-300 hover:text-white">{data.site.domain}</a>
+          <span className="text-neutral-700">·</span>
+          <span className="text-neutral-400" title="WPE account / server">🖥 {server ?? '—'}</span>
+          <span className="text-neutral-700">·</span>
+          {HEADLINE.map((k) => {
+            const st = pluginStat(k);
+            return (
+              <span key={k} className="flex items-center gap-1.5" title={PLUGIN_LABEL[k]}>
+                <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+                <span className="text-neutral-400">{PLUGIN_LABEL[k]}</span>
+                <span className={st.cls}>{st.label}</span>
+              </span>
+            );
+          })}
+          <span className="ml-auto text-neutral-500" title={data.site.last_run ? new Date(data.site.last_run).toLocaleString() : ''}>last run {timeAgo(data.site.last_run)}</span>
+        </div>
+        {msg && <div className="border-t border-neutral-800 px-5 py-2 text-xs text-neutral-400">{msg}</div>}
       </div>
+
+      {/* Diagnosis — hidden until Analyze (title bar) is clicked; Mobile/Desktop act as tabs. */}
+      {diagOpen && (
+        <div>
+          <div className="flex items-center gap-1 border-b border-neutral-800">
+            {(['desktop', 'mobile'] as const).map((s) => {
+              const active = diagStrategy === s;
+              return (
+                <button key={s} onClick={() => analyze(s)} disabled={diagBusy}
+                  className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium capitalize disabled:opacity-60 ${active ? 'border-blue-500 text-white' : 'border-transparent text-neutral-500 hover:text-neutral-300'}`}>
+                  {s === 'desktop' ? <IconMonitor /> : <IconPhone />}{s}
+                </button>
+              );
+            })}
+            <div className="ml-auto flex items-center gap-2 pr-1 text-xs text-neutral-500">
+              {diagBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
+              {diag && <span>Lighthouse <span className="font-semibold text-neutral-300">{diag.score ?? '—'}</span></span>}
+            </div>
+          </div>
+          <div className="pt-3">
+            {diagErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{diagErr}</p>}
+            {diagBusy && !diag && <Spinner label={`Analyzing ${diagStrategy}… (~30–90s)`} />}
+            {diag && (
+              <div className="space-y-3">
+                {diag.opportunities.length > 0 && (
+                  <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Opportunities</h3>
+                    <div className="space-y-2">
+                      {diag.opportunities.map((o) => (
+                        <div key={o.id} className="border-t border-neutral-800 pt-2 first:border-0 first:pt-0">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-sm font-medium">{o.title}</span>
+                            {o.savingsMs != null && <span className="shrink-0 rounded bg-amber-900/50 px-1.5 py-0.5 text-xs font-semibold text-amber-300">~{(o.savingsMs / 1000).toFixed(2)}s</span>}
+                          </div>
+                          {o.displayValue && <div className="text-xs text-neutral-500">{o.displayValue}</div>}
+                          {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
+                          {nitroBlocked && o.serverNote && <div className="text-xs text-amber-400/90">⚠ {o.serverNote}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {diag.diagnostics.length > 0 && (
+                  <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Diagnostics</h3>
+                    <div className="space-y-2">
+                      {diag.diagnostics.map((o) => (
+                        <div key={o.id} className="border-t border-neutral-800 pt-2 first:border-0 first:pt-0">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-sm font-medium">{o.title}</span>
+                            {o.displayValue && <span className="shrink-0 text-xs text-neutral-400">{o.displayValue}</span>}
+                          </div>
+                          {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
+                          {nitroBlocked && o.serverNote && <div className="text-xs text-amber-400/90">⚠ {o.serverNote}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {diag.opportunities.length === 0 && diag.diagnostics.length === 0 && (
+                  <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-green-400">No significant opportunities — this page is well-optimized. 🎉</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <StrategyCard label="Mobile" run={m} />
@@ -255,6 +397,12 @@ export default function SiteDetail() {
       </div>
 
       <TrendChart mob={data.history.mobile ?? []} desk={data.history.desktop ?? []} />
+
+      {/* Activity log — reserved slot under score history; pick the exact feed later. */}
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+        <h3 className="mb-1 text-sm font-semibold">Activity log</h3>
+        <p className="text-sm text-neutral-600">Coming soon — a log of measurements, analyses, and score changes for this site.</p>
+      </div>
 
       {/* Optimization — always rendered once the Agent check resolves, with a clear status. */}
       {agent && (
@@ -301,75 +449,6 @@ export default function SiteDetail() {
         </div>
       )}
 
-      {/* Diagnosis — on-demand fresh Lighthouse pull (free); does not touch the stored score. */}
-      <div>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Diagnosis
-            {diag && <span className="font-normal text-neutral-500"> · {diag.strategy} · Lighthouse {diag.score ?? '—'}</span>}
-          </h2>
-          <div className="flex items-center gap-2">
-            <div className="flex overflow-hidden rounded border border-neutral-700 text-xs">
-              {(['mobile', 'desktop'] as const).map((s) => (
-                <button key={s} onClick={() => analyze(s)} disabled={diagBusy}
-                  className={`px-2 py-1 ${diag && diag.strategy === s ? 'bg-neutral-700 text-white' : 'text-neutral-300 hover:bg-neutral-800'}`}>{s}</button>
-              ))}
-            </div>
-            <button onClick={() => analyze(diagStrategy)} disabled={diagBusy}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60">
-              {diagBusy ? 'Analyzing…' : diag ? 'Re-analyze' : 'Analyze'}
-            </button>
-          </div>
-        </div>
-        {diagErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{diagErr}</p>}
-        {!diag && !diagBusy && !diagErr && (
-          <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">
-            Run a fresh Lighthouse analysis to see opportunities &amp; diagnostics, each mapped to a WP Rocket / NitroPack / ShortPixel fix. Free, and separate from Re-measure — it doesn&apos;t change the stored score.
-          </p>
-        )}
-        {diagBusy && !diag && <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-500">Analyzing… (~30–90s)</p>}
-        {diag && (
-          <div className="space-y-3">
-            {diag.opportunities.length > 0 && (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Opportunities</h3>
-                <div className="space-y-2">
-                  {diag.opportunities.map((o) => (
-                    <div key={o.id} className="border-t border-neutral-800 pt-2 first:border-0 first:pt-0">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-sm font-medium">{o.title}</span>
-                        {o.savingsMs != null && <span className="shrink-0 rounded bg-amber-900/50 px-1.5 py-0.5 text-xs font-semibold text-amber-300">~{(o.savingsMs / 1000).toFixed(2)}s</span>}
-                      </div>
-                      {o.displayValue && <div className="text-xs text-neutral-500">{o.displayValue}</div>}
-                      {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
-                      {nitroBlocked && o.serverNote && <div className="text-xs text-amber-400/90">⚠ {o.serverNote}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {diag.diagnostics.length > 0 && (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Diagnostics</h3>
-                <div className="space-y-2">
-                  {diag.diagnostics.map((o) => (
-                    <div key={o.id} className="border-t border-neutral-800 pt-2 first:border-0 first:pt-0">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-sm font-medium">{o.title}</span>
-                        {o.displayValue && <span className="shrink-0 text-xs text-neutral-400">{o.displayValue}</span>}
-                      </div>
-                      {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
-                      {nitroBlocked && o.serverNote && <div className="text-xs text-amber-400/90">⚠ {o.serverNote}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {diag.opportunities.length === 0 && diag.diagnostics.length === 0 && (
-              <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-green-400">No significant opportunities — this page is well-optimized. 🎉</p>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
