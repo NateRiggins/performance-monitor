@@ -72,6 +72,97 @@ export default function Settings() {
           </table>
         </div>
       </div>
+
+      <RecsEditor />
+    </div>
+  );
+}
+
+type Rec = { audit_id: string; tool: string | null; recommendation: string; server_note: string | null };
+
+function RecsEditor() {
+  const [rows, setRows] = useState<Rec[] | null>(null);
+  const [tools, setTools] = useState<string[]>([]);
+  const [savingId, setSavingId] = useState('');
+  const [msg, setMsg] = useState('');
+  const [q, setQ] = useState('');
+  const [neu, setNeu] = useState<Rec>({ audit_id: '', tool: 'other', recommendation: '', server_note: '' });
+
+  const load = () => fetch('/api/recommendations').then((r) => r.json()).then((d) => { setRows(d.rows || []); setTools(d.tools || []); });
+  useEffect(() => { load(); }, []);
+
+  const edit = (id: string, patch: Partial<Rec>) => setRows((rs) => rs ? rs.map((r) => r.audit_id === id ? { ...r, ...patch } : r) : rs);
+
+  async function save(r: Rec) {
+    setSavingId(r.audit_id); setMsg('');
+    const d = await fetch('/api/recommendations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(r) }).then((x) => x.json());
+    setSavingId('');
+    setMsg(d.success ? `Saved ${r.audit_id}` : (d.error || 'save failed'));
+    return d.success;
+  }
+  async function addNew() {
+    if (!neu.audit_id.trim() || !neu.recommendation.trim()) { setMsg('audit_id + recommendation required'); return; }
+    if (await save(neu)) { setNeu({ audit_id: '', tool: 'other', recommendation: '', server_note: '' }); load(); }
+  }
+  async function remove(id: string) {
+    if (!confirm(`Delete the recommendation for ${id}?`)) return;
+    await fetch(`/api/recommendations?audit_id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    load();
+  }
+
+  const toolSel = (val: string | null, on: (v: string) => void) => (
+    <select value={val ?? ''} onChange={(e) => on(e.target.value)} className="rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-xs">
+      <option value="">—</option>
+      {tools.map((t) => <option key={t} value={t}>{t}</option>)}
+    </select>
+  );
+  const inp = (v: string, on: (s: string) => void, ph = '') => (
+    <input value={v} onChange={(e) => on(e.target.value)} placeholder={ph} className="w-full rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-xs outline-none focus:border-neutral-500" />
+  );
+
+  if (!rows) return <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 text-sm text-neutral-500">Loading recommendations…</div>;
+  const filtered = rows.filter((r) => `${r.audit_id} ${r.recommendation}`.toLowerCase().includes(q.trim().toLowerCase()));
+
+  return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Recommendations <span className="font-normal text-neutral-500">({rows.length})</span></h2>
+          <p className="text-xs text-neutral-500">Lighthouse audit → AMG-stack fix shown in each site&apos;s Diagnosis panel. Edits apply within ~5 min.</p>
+        </div>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="w-40 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs" />
+      </div>
+      {msg && <p className="mt-2 text-xs text-neutral-400">{msg}</p>}
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-neutral-500">
+              <th className="py-1 pr-2">Audit</th><th className="py-1 pr-2">Tool</th><th className="py-1 pr-2 w-[36%]">Recommendation</th><th className="py-1 pr-2 w-[28%]">Server 4/5 note</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => (
+              <tr key={r.audit_id} className="border-t border-neutral-800 align-top">
+                <td className="py-1.5 pr-2 font-mono text-xs text-neutral-400">{r.audit_id}</td>
+                <td className="py-1.5 pr-2">{toolSel(r.tool, (v) => edit(r.audit_id, { tool: v || null }))}</td>
+                <td className="py-1.5 pr-2">{inp(r.recommendation, (v) => edit(r.audit_id, { recommendation: v }))}</td>
+                <td className="py-1.5 pr-2">{inp(r.server_note ?? '', (v) => edit(r.audit_id, { server_note: v }))}</td>
+                <td className="py-1.5 whitespace-nowrap">
+                  <button onClick={() => save(r)} disabled={savingId === r.audit_id} className="rounded bg-blue-600 px-2 py-1 text-xs font-medium hover:bg-blue-500 disabled:opacity-60">{savingId === r.audit_id ? '…' : 'Save'}</button>
+                  <button onClick={() => remove(r.audit_id)} title="Delete" aria-label="Delete" className="ml-1 rounded border border-neutral-700 px-2 py-1 text-xs text-red-400 hover:bg-neutral-800">✕</button>
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t border-neutral-700 align-top">
+              <td className="py-1.5 pr-2">{inp(neu.audit_id, (v) => setNeu({ ...neu, audit_id: v }), 'new-audit-id')}</td>
+              <td className="py-1.5 pr-2">{toolSel(neu.tool, (v) => setNeu({ ...neu, tool: v }))}</td>
+              <td className="py-1.5 pr-2">{inp(neu.recommendation, (v) => setNeu({ ...neu, recommendation: v }), 'fix text')}</td>
+              <td className="py-1.5 pr-2">{inp(neu.server_note ?? '', (v) => setNeu({ ...neu, server_note: v }), 'optional')}</td>
+              <td className="py-1.5"><button onClick={addNew} className="rounded bg-green-700 px-2 py-1 text-xs font-medium hover:bg-green-600">Add</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

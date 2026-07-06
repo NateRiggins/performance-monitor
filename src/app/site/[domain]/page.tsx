@@ -20,7 +20,7 @@ type AgentData =
   | { ok: false; error: string; server?: string | null }
   | null;
 const HEADLINE = ['wp-rocket', 'shortpixel', 'nitropack'];
-type DiagItem = { id: string; title: string; savingsMs: number | null; displayValue: string; fix: string | null };
+type DiagItem = { id: string; title: string; savingsMs: number | null; displayValue: string; fix: string | null; serverNote: string | null };
 type Diagnosis = { strategy: string; score: number | null; opportunities: DiagItem[]; diagnostics: DiagItem[]; fetchedAt: string };
 
 const tip = { contentStyle: { background: '#171717', border: '1px solid #404040', borderRadius: 8, fontSize: 12 }, labelStyle: { color: '#e5e5e5' } };
@@ -341,6 +341,7 @@ export default function SiteDetail() {
                       </div>
                       {o.displayValue && <div className="text-xs text-neutral-500">{o.displayValue}</div>}
                       {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
+                      {nitroBlocked && o.serverNote && <div className="text-xs text-amber-400/90">⚠ {o.serverNote}</div>}
                     </div>
                   ))}
                 </div>
@@ -357,6 +358,7 @@ export default function SiteDetail() {
                         {o.displayValue && <span className="shrink-0 text-xs text-neutral-400">{o.displayValue}</span>}
                       </div>
                       {o.fix && <div className="mt-0.5 text-xs text-blue-300">→ {o.fix}</div>}
+                      {nitroBlocked && o.serverNote && <div className="text-xs text-amber-400/90">⚠ {o.serverNote}</div>}
                     </div>
                   ))}
                 </div>

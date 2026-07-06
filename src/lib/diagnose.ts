@@ -1,11 +1,13 @@
+import { supabaseAdmin } from '@/lib/supabase/admin';
+
 // On-demand Lighthouse diagnosis from PageSpeed Insights (FREE — same API as the runs, no per-call
 // cost). Surfaces the opportunities + diagnostics PSI already returns and maps each to an actionable
-// fix in the AMG optimization stack (WP Rocket / NitroPack / ShortPixel). Fetched fresh per request,
-// not stored (the raw Lighthouse payload is large — same reason the runs table dropped `raw`).
+// fix from the curated `pm_recommendations` table (WP Rocket / NitroPack / ShortPixel). Fetched fresh
+// per request, not stored (the raw Lighthouse payload is large — same reason the runs table dropped `raw`).
 const API_BASE = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 
 export type Strategy = 'mobile' | 'desktop';
-export type DiagItem = { id: string; title: string; savingsMs: number | null; displayValue: string; fix: string | null };
+export type DiagItem = { id: string; title: string; savingsMs: number | null; displayValue: string; fix: string | null; serverNote: string | null };
 export type Diagnosis = { strategy: Strategy; score: number | null; opportunities: DiagItem[]; diagnostics: DiagItem[]; fetchedAt: string };
 
 // Lighthouse audit id → recommended fix in the AMG stack. Kept plain-English + tool-specific so the
@@ -40,6 +42,26 @@ const FIX: Record<string, string> = {
 // Diagnostics we surface (not "opportunities" with a ms number, but useful signals) when flagged.
 const DIAG_IDS = ['mainthread-work-breakdown', 'bootup-time', 'third-party-summary', 'dom-size', 'server-response-time', 'uses-long-cache-ttl', 'total-byte-weight'];
 
+type Rec = { fix: string | null; serverNote: string | null };
+let recsCache: Map<string, Rec> | null = null;
+let recsCacheAt = 0;
+const RECS_TTL = 5 * 60 * 1000; // refresh from the DB every 5 min so Settings edits show up without a redeploy
+
+// Curated recommendations keyed by Lighthouse audit id. Seeds from the in-code FIX map (so the panel
+// still shows fixes if the table is empty/unreachable), then overlays the editable pm_recommendations rows.
+async function loadRecs(): Promise<Map<string, Rec>> {
+  const now = Date.now();
+  if (recsCache && now - recsCacheAt < RECS_TTL) return recsCache;
+  const m = new Map<string, Rec>();
+  for (const [id, fix] of Object.entries(FIX)) m.set(id, { fix, serverNote: null });
+  try {
+    const { data } = await supabaseAdmin().from('pm_recommendations').select('audit_id,recommendation,server_note');
+    for (const r of data ?? []) m.set(r.audit_id as string, { fix: (r.recommendation as string) ?? null, serverNote: (r.server_note as string) ?? null });
+  } catch { /* keep the fallback */ }
+  recsCache = m; recsCacheAt = now;
+  return m;
+}
+
 export async function diagnose(url: string, strategy: Strategy = 'mobile'): Promise<Diagnosis> {
   const key = process.env.PAGESPEED_API_KEY;
   const params = new URLSearchParams({ url, strategy, category: 'performance' });
@@ -55,14 +77,16 @@ export async function diagnose(url: string, strategy: Strategy = 'mobile'): Prom
   const audits: Record<string, any> = lh.audits ?? {};
   const score = lh.categories?.performance?.score;
 
+  const recs = await loadRecs();
   const opportunities: DiagItem[] = [];
   const diagnostics: DiagItem[] = [];
   for (const [id, a] of Object.entries(audits)) {
+    const rec = recs.get(id) ?? { fix: null, serverNote: null };
     const sav = a?.details?.overallSavingsMs;
     if (a?.details?.type === 'opportunity' && Number.isFinite(sav) && sav >= 50) {
-      opportunities.push({ id, title: a.title ?? id, savingsMs: Math.round(sav), displayValue: a.displayValue ?? '', fix: FIX[id] ?? null });
+      opportunities.push({ id, title: a.title ?? id, savingsMs: Math.round(sav), displayValue: a.displayValue ?? '', fix: rec.fix, serverNote: rec.serverNote });
     } else if (DIAG_IDS.includes(id) && a && a.score !== 1 && a.scoreDisplayMode !== 'notApplicable') {
-      diagnostics.push({ id, title: a.title ?? id, savingsMs: null, displayValue: a.displayValue ?? '', fix: FIX[id] ?? null });
+      diagnostics.push({ id, title: a.title ?? id, savingsMs: null, displayValue: a.displayValue ?? '', fix: rec.fix, serverNote: rec.serverNote });
     }
   }
   opportunities.sort((x, y) => (y.savingsMs ?? 0) - (x.savingsMs ?? 0));
