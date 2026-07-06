@@ -22,6 +22,11 @@ type AgentData =
 const HEADLINE = ['wp-rocket', 'shortpixel', 'nitropack'];
 type DiagItem = { id: string; title: string; savingsMs: number | null; displayValue: string; fix: string | null; serverNote: string | null };
 type Diagnosis = { strategy: string; score: number | null; opportunities: DiagItem[]; diagnostics: DiagItem[]; fetchedAt: string };
+type ActivityRow = {
+  id: number; domain: string | null; event: 'scan' | 'remeasure' | 'analyze'; strategy: string | null;
+  score: number | null; status: string; source: string; detail: Record<string, any> | null; created_at: string;
+};
+const ACT_PAGE = 10;
 
 const tip = { contentStyle: { background: '#171717', border: '1px solid #404040', borderRadius: 8, fontSize: 12 }, labelStyle: { color: '#e5e5e5' } };
 const fmtMs = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`);
@@ -168,6 +173,11 @@ const IconPhone = () => (
     <rect x="7" y="2" width="10" height="20" rx="2" /><path d="M11 18h2" />
   </svg>
 );
+const IconScan = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="3" y="4" width="18" height="6" rx="1" /><rect x="3" y="14" width="18" height="6" rx="1" /><path d="M7 7h.01M7 17h.01" />
+  </svg>
+);
 
 const Spinner = ({ label }: { label?: string }) => (
   <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900 text-sm text-neutral-500">
@@ -186,6 +196,17 @@ function timeAgo(iso: string | null): string {
   const mo = Math.floor(d / 30); return mo === 1 ? '1 month ago' : `${mo} months ago`;
 }
 
+const activityIcon = (e: ActivityRow['event']) => (e === 'analyze' ? <IconAnalyze /> : e === 'scan' ? <IconScan /> : <IconRefresh />);
+function activityText(a: ActivityRow): string {
+  if (a.status === 'error') {
+    const base = a.event === 'analyze' ? `Analysis (${a.strategy})` : a.event === 'remeasure' ? 'Re-measure' : 'Fleet scan';
+    return `${base} failed${a.detail?.error ? ` — ${a.detail.error}` : ''}`;
+  }
+  if (a.event === 'remeasure') return `Re-measured · Desktop ${a.detail?.desktop ?? '—'} · Mobile ${a.detail?.mobile ?? '—'}`;
+  if (a.event === 'analyze') return `Analyzed (${a.strategy}) · Lighthouse ${a.score ?? '—'} · ${a.detail?.opps ?? 0} opportunities`;
+  return `Fleet scan · ${a.detail?.ran ?? 0} sites`;
+}
+
 export default function SiteDetail() {
   const params = useParams();
   const domain = decodeURIComponent(String(params.domain ?? ''));
@@ -198,6 +219,10 @@ export default function SiteDetail() {
   const [diagBusy, setDiagBusy] = useState(false);
   const [diagStrategy, setDiagStrategy] = useState<'mobile' | 'desktop'>('desktop');
   const [diagErr, setDiagErr] = useState('');
+  const [activity, setActivity] = useState<ActivityRow[] | null>(null);
+  const [actPage, setActPage] = useState(0);
+  const [actTotal, setActTotal] = useState(0);
+  const [actBusy, setActBusy] = useState(false);
 
   const load = useCallback(() => {
     fetch(`/api/site/${encodeURIComponent(domain)}`).then((r) => r.json()).then((d) => {
@@ -209,6 +234,17 @@ export default function SiteDetail() {
     fetch(`/api/site/${encodeURIComponent(domain)}/agent`).then((r) => r.json()).then(setAgent).catch(() => setAgent({ ok: false, error: 'unreachable' }));
   }, [domain]);
 
+  // AJAX-paginated activity feed (10/page).
+  const loadActivity = useCallback((page = 0) => {
+    setActBusy(true);
+    fetch(`/api/site/${encodeURIComponent(domain)}/activity?limit=${ACT_PAGE}&offset=${page * ACT_PAGE}`)
+      .then((r) => r.json())
+      .then((d) => { setActivity(d.rows ?? []); setActTotal(d.total ?? 0); setActPage(page); })
+      .catch(() => setActivity([]))
+      .finally(() => setActBusy(false));
+  }, [domain]);
+  useEffect(() => { loadActivity(0); }, [loadActivity]);
+
   async function reMeasure() {
     setBusy(true); setMsg('Measuring… (~30–90s)');
     try {
@@ -219,6 +255,7 @@ export default function SiteDetail() {
       const r0 = d.results?.[0];
       setMsg(d.ok ? `Done — ${r0?.ok ?? 0}/2${r0?.notes?.length ? ` (${r0.notes.join('; ')})` : ''}` : (d.error || 'failed'));
       load();
+      loadActivity(0);
     } catch { setMsg('Run failed.'); }
     setBusy(false);
   }
@@ -233,6 +270,7 @@ export default function SiteDetail() {
       if (d.error) { setDiagErr(d.error); setDiag(null); } else setDiag(d);
     } catch { setDiagErr('analysis failed'); }
     setDiagBusy(false);
+    loadActivity(0);
   }
 
   if (notFound) return <p className="text-neutral-500">Unknown site. <Link href="/" className="text-blue-400 hover:underline">← Back</Link></p>;
@@ -374,10 +412,41 @@ export default function SiteDetail() {
 
       <TrendChart mob={data.history.mobile ?? []} desk={data.history.desktop ?? []} />
 
-      {/* Activity log — reserved slot under score history; pick the exact feed later. */}
+      {/* Activity log — scans, re-measures, and analyses for this site (AJAX paginated, 10/page). */}
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-        <h3 className="mb-1 text-sm font-semibold">Activity log</h3>
-        <p className="text-sm text-neutral-600">Coming soon — a log of measurements, analyses, and score changes for this site.</p>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Activity log{actTotal > 0 && <span className="font-normal text-neutral-500"> · {actTotal}</span>}</h3>
+          {actBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
+        </div>
+        {activity === null ? (
+          <p className="text-sm text-neutral-600">Loading…</p>
+        ) : activity.length === 0 ? (
+          <p className="text-sm text-neutral-600">No activity yet — run a measure or analysis.</p>
+        ) : (
+          <>
+            <div>
+              {activity.map((a) => (
+                <div key={a.id} className="flex items-center gap-3 border-t border-neutral-800 py-2 text-sm first:border-0 first:pt-0">
+                  <span className={`shrink-0 ${a.status === 'error' ? 'text-red-400' : 'text-neutral-500'}`}>{activityIcon(a.event)}</span>
+                  <span className={`min-w-0 flex-1 truncate ${a.status === 'error' ? 'text-red-300' : 'text-neutral-200'}`}>{activityText(a)}</span>
+                  <span className="shrink-0 rounded border border-neutral-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-neutral-500">{a.source}</span>
+                  <span className="shrink-0 text-xs text-neutral-500" title={new Date(a.created_at).toLocaleString()}>{timeAgo(a.created_at)}</span>
+                </div>
+              ))}
+            </div>
+            {actTotal > ACT_PAGE && (
+              <div className="mt-3 flex items-center justify-between border-t border-neutral-800 pt-3 text-xs text-neutral-500">
+                <span>Page {actPage + 1} of {Math.ceil(actTotal / ACT_PAGE)}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => loadActivity(actPage - 1)} disabled={actPage === 0 || actBusy}
+                    className="rounded border border-neutral-700 px-2 py-1 hover:border-neutral-500 disabled:opacity-40">← Prev</button>
+                  <button onClick={() => loadActivity(actPage + 1)} disabled={actPage + 1 >= Math.ceil(actTotal / ACT_PAGE) || actBusy}
+                    className="rounded border border-neutral-700 px-2 py-1 hover:border-neutral-500 disabled:opacity-40">Next →</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

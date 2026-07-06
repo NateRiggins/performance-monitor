@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { runPagespeed, type Strategy } from '@/lib/psi';
+import { logActivity } from '@/lib/activity';
 
 const STRATEGIES: Strategy[] = ['mobile', 'desktop'];
 const FRESH_HOURS = 20;          // skip a site whose last run is newer than this (unless force)
@@ -9,8 +10,12 @@ type DB = ReturnType<typeof supabaseAdmin>;
 const isFresh = (ts: any) => !!ts && Date.now() - new Date(ts).getTime() < FRESH_HOURS * 3600 * 1000;
 const urlFor = (domain: string) => `https://${domain}/`;
 
-async function runOne(db: DB, site: { domain: string }, deadline: number) {
+type Scores = { mobile: number | null; desktop: number | null };
+type RunResult = { domain: string; ok: number; notes: string[]; scores: Scores };
+
+async function runOne(db: DB, site: { domain: string }, deadline: number): Promise<RunResult> {
   const notes: string[] = [];
+  const scores: Scores = { mobile: null, desktop: null };
   let ok = 0;
   for (const strategy of STRATEGIES) {
     // Check the clock BEFORE each PSI call (not just per-site) so a call started late
@@ -25,6 +30,7 @@ async function runOne(db: DB, site: { domain: string }, deadline: number) {
         has_field: res.has_field,
         crux_lcp_ms: res.crux_lcp_ms, crux_inp_ms: res.crux_inp_ms, crux_cls: res.crux_cls, crux_category: res.crux_category,
       });
+      scores[strategy] = res.perf_score;
       ok++;
     } catch (e: any) {
       notes.push(`${strategy}: ${String(e?.message || e).slice(0, 60)}`);
@@ -36,14 +42,14 @@ async function runOne(db: DB, site: { domain: string }, deadline: number) {
   const update: { last_status: string; last_run?: string } = { last_status: status };
   if (ok > 0) update.last_run = new Date().toISOString();
   await db.from('pm_sites').update(update).eq('domain', site.domain);
-  return { domain: site.domain, ok, notes };
+  return { domain: site.domain, ok, notes, scores };
 }
 
-export type RunOpts = { domains?: string[] | null; force?: boolean; maxMs?: number };
+export type RunOpts = { domains?: string[] | null; force?: boolean; maxMs?: number; source?: 'manual' | 'cron' };
 
 // Runs PSI for included sites, oldest-run first. maxMs caps wall-clock so a serverless
 // invocation self-limits (the fleet is too big for one 300s function; daily cron chips away).
-export async function runSites({ domains = null, force = false, maxMs = 0 }: RunOpts = {}) {
+export async function runSites({ domains = null, force = false, maxMs = 0, source = 'manual' }: RunOpts = {}) {
   const db = supabaseAdmin();
   let q = db.from('pm_sites').select('domain,last_run').order('last_run', { ascending: true, nullsFirst: true });
   q = domains && domains.length ? q.in('domain', domains) : q.eq('include', true);
@@ -54,7 +60,7 @@ export async function runSites({ domains = null, force = false, maxMs = 0 }: Run
   const start = Date.now();
   const deadline = maxMs > 0 ? start + maxMs : 0;
   const pending = queue.slice();
-  const results: { domain: string; ok: number; notes: string[] }[] = [];
+  const results: RunResult[] = [];
   const budgetHit = () => deadline > 0 && Date.now() > deadline;
 
   const workers = Array.from({ length: CONCURRENCY }, async () => {
@@ -67,5 +73,24 @@ export async function runSites({ domains = null, force = false, maxMs = 0 }: Run
   await Promise.all(workers);
 
   await db.from('pm_settings').upsert({ key: 'last_run', value: new Date().toISOString() });
+
+  // Activity log (fire-and-forget). Single-site force = per-domain "remeasure"; a fleet batch that
+  // actually measured something = one "scan" row (empty idle cron ticks aren't logged).
+  if (domains && domains.length) {
+    for (const r of results) {
+      await logActivity({
+        domain: r.domain, event: 'remeasure', source,
+        score: r.scores.desktop ?? r.scores.mobile ?? null,
+        status: r.ok > 0 ? 'ok' : 'error',
+        detail: { mobile: r.scores.mobile, desktop: r.scores.desktop, ok: r.ok, notes: r.notes },
+      });
+    }
+  } else if (results.length > 0) {
+    await logActivity({
+      domain: null, event: 'scan', source,
+      detail: { ran: results.length, skipped_remaining: pending.length, stopped_early: budgetHit() },
+    });
+  }
+
   return { results, ran: results.length, skipped_remaining: pending.length, stopped_early: budgetHit() };
 }

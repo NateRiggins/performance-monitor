@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   }
   try {
     // 180s budget + worst-case one in-flight 90s PSI call = ~270s, safely under the 300s kill.
-    const out = await runSites({ maxMs: 180000 });
+    const out = await runSites({ maxMs: 180000, source: 'cron' });
     return NextResponse.json({ ok: true, ...out });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, { status: 502 });
