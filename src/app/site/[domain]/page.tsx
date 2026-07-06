@@ -199,12 +199,12 @@ function timeAgo(iso: string | null): string {
 const activityIcon = (e: ActivityRow['event']) => (e === 'analyze' ? <IconAnalyze /> : e === 'scan' ? <IconScan /> : <IconRefresh />);
 function activityText(a: ActivityRow): string {
   if (a.status === 'error') {
-    const base = a.event === 'analyze' ? `Analysis (${a.strategy})` : a.event === 'remeasure' ? 'Re-measure' : 'Fleet scan';
+    const base = a.event === 'analyze' ? `Analysis (${a.strategy})` : a.event === 'remeasure' ? 'Re-measure' : 'Scan';
     return `${base} failed${a.detail?.error ? ` — ${a.detail.error}` : ''}`;
   }
-  if (a.event === 'remeasure') return `Re-measured · Desktop ${a.detail?.desktop ?? '—'} · Mobile ${a.detail?.mobile ?? '—'}`;
   if (a.event === 'analyze') return `Analyzed (${a.strategy}) · Lighthouse ${a.score ?? '—'} · ${a.detail?.opps ?? 0} opportunities`;
-  return `Fleet scan · ${a.detail?.ran ?? 0} sites`;
+  const verb = a.event === 'remeasure' ? 'Re-measured' : 'Scanned';
+  return `${verb} · Desktop ${a.detail?.desktop ?? '—'} · Mobile ${a.detail?.mobile ?? '—'}`;
 }
 
 export default function SiteDetail() {

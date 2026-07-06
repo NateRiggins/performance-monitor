@@ -74,22 +74,16 @@ export async function runSites({ domains = null, force = false, maxMs = 0, sourc
 
   await db.from('pm_settings').upsert({ key: 'last_run', value: new Date().toISOString() });
 
-  // Activity log (fire-and-forget). Single-site force = per-domain "remeasure". A MANUAL fleet run
-  // logs one "scan" row (for a future dashboard-level feed); the every-5-min CRON does NOT log —
-  // it would spam a scan row per tick forever, and each site's "last run" already reflects it.
-  if (domains && domains.length) {
-    for (const r of results) {
-      await logActivity({
-        domain: r.domain, event: 'remeasure', source,
-        score: r.scores.desktop ?? r.scores.mobile ?? null,
-        status: r.ok > 0 ? 'ok' : 'error',
-        detail: { mobile: r.scores.mobile, desktop: r.scores.desktop, ok: r.ok, notes: r.notes },
-      });
-    }
-  } else if (results.length > 0 && source !== 'cron') {
+  // Activity log (fire-and-forget), one row per site ACTUALLY measured — so the detail page shows
+  // exactly when THIS site was last scanned, cron included. Targeted single-site runs are "remeasure"
+  // (user-initiated); fleet/cron runs are "scan". Both carry the site's own scores + source.
+  const event: 'remeasure' | 'scan' = (domains && domains.length) ? 'remeasure' : 'scan';
+  for (const r of results) {
     await logActivity({
-      domain: null, event: 'scan', source,
-      detail: { ran: results.length, skipped_remaining: pending.length, stopped_early: budgetHit() },
+      domain: r.domain, event, source,
+      score: r.scores.desktop ?? r.scores.mobile ?? null,
+      status: r.ok > 0 ? 'ok' : 'error',
+      detail: { mobile: r.scores.mobile, desktop: r.scores.desktop, ok: r.ok, notes: r.notes },
     });
   }
 
