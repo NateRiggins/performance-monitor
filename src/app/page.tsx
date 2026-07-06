@@ -47,8 +47,8 @@ const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
     })).filter((d) => d.value > 0);
   const distMobile = distFor((r) => r.mobile?.perf_score);
   const distDesktop = distFor((r) => r.desktop?.perf_score);
-  const worst = rows.filter((r) => r.mobile?.perf_score != null).sort((a, b) => a.mobile!.perf_score! - b.mobile!.perf_score!).slice(0, 8)
-    .map((r) => ({ name: (r.name || r.domain).slice(0, 22), score: r.mobile!.perf_score, fill: BAND_HEX[scoreBand(r.mobile!.perf_score)] }));
+  const worst = rows.filter((r) => r.desktop?.perf_score != null).sort((a, b) => a.desktop!.perf_score! - b.desktop!.perf_score!).slice(0, 8)
+    .map((r) => ({ name: (r.name || r.domain).slice(0, 22), score: r.desktop!.perf_score, fill: BAND_HEX[scoreBand(r.desktop!.perf_score)] }));
   const donut = (title: string, d: { name: string; value: number; fill: string }[]) => {
     const total = d.reduce((a, x) => a + x.value, 0);
     return (
@@ -74,14 +74,14 @@ const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
       {donut('Desktop score distribution', distDesktop)}
       {donut('Mobile score distribution', distMobile)}
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 lg:col-span-2">
-        <h3 className="mb-3 text-sm font-semibold">Lowest mobile scores</h3>
+        <h3 className="mb-3 text-sm font-semibold">Lowest desktop scores</h3>
         {worst.length === 0 ? <p className="text-sm text-neutral-500">No data.</p> : (
           <ResponsiveContainer width="100%" height={Math.max(160, worst.length * 30)}>
             <BarChart data={worst} layout="vertical" margin={{ left: 8, right: 24 }}>
               <CartesianGrid stroke="#262626" horizontal={false} />
               <XAxis type="number" domain={[0, 100]} tick={axisTick} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="name" tick={axisTick} width={150} axisLine={false} tickLine={false} />
-              <Tooltip {...tip} cursor={{ fill: '#ffffff10' }} formatter={(v: any) => [v, 'Mobile']} />
+              <Tooltip {...tip} cursor={{ fill: '#ffffff10' }} formatter={(v: any) => [v, 'Desktop']} />
               <Bar dataKey="score" radius={[0, 4, 4, 0]}>{worst.map((d, i) => <Cell key={i} fill={d.fill} />)}</Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -93,8 +93,8 @@ const Charts = memo(function Charts({ rows }: { rows: Row[] }) {
 
 export default function Dashboard() {
   const [data, setData] = useState<Data | null>(null);
-  const [sortCol, setSortCol] = useState('mscore');
-  const [sortDir, setSortDir] = useState(1);
+  const [sortCol, setSortCol] = useState('dscore');
+  const [sortDir, setSortDir] = useState(-1); // desktop, highest first — clients judge on desktop; problem sites are already color-flagged
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -116,7 +116,7 @@ export default function Dashboard() {
   const rows = useMemo(() => {
     if (!data) return [];
     let rs = base.slice();
-    if (filter) rs = rs.filter((r) => scoreBand(r.mobile?.perf_score) === filter);
+    if (filter) rs = rs.filter((r) => scoreBand(r.desktop?.perf_score) === filter);
     const q = debouncedSearch.trim().toLowerCase();
     if (q) rs = rs.filter((r) => `${r.name ?? ''} ${r.domain ?? ''}`.toLowerCase().includes(q));
     const key = (r: Row) => sortCol === 'mscore' ? r.mobile?.perf_score
@@ -152,12 +152,12 @@ export default function Dashboard() {
 
   if (!data) return <p className="text-neutral-500">Loading…</p>;
   const hiddenCount = data.rows.filter((r) => isHosting(r.server)).length;
-  const mScores = base.map((r) => r.mobile?.perf_score).filter((n): n is number => n != null);
+  const dScores = base.map((r) => r.desktop?.perf_score).filter((n): n is number => n != null);
   const c = {
     sites: base.length,
     measured: base.filter((r) => r.mobile || r.desktop).length,
-    avg_mobile: mScores.length ? Math.round(mScores.reduce((a, b) => a + b, 0) / mScores.length) : null,
-    poor_mobile: base.filter((r) => r.mobile?.perf_score != null && r.mobile.perf_score < 60).length,
+    avg_desktop: dScores.length ? Math.round(dScores.reduce((a, b) => a + b, 0) / dScores.length) : null,
+    poor_desktop: base.filter((r) => r.desktop?.perf_score != null && r.desktop.perf_score < 60).length,
     field_coverage: base.filter((r) => r.mobile?.has_field || r.desktop?.has_field).length,
   };
   const card = (n: any, l: string) => (
@@ -190,7 +190,7 @@ export default function Dashboard() {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_mobile == null ? '—' : c.avg_mobile, 'Avg mobile')}{card(c.poor_mobile, 'Critical mobile (<60)')}{card(c.field_coverage, 'Have field data')}
+        {card(c.sites, 'Sites')}{card(c.measured, 'Measured')}{card(c.avg_desktop == null ? '—' : c.avg_desktop, 'Avg desktop')}{card(c.poor_desktop, 'Critical desktop (<60)')}{card(c.field_coverage, 'Have field data')}
       </div>
       <Charts rows={base} />
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
@@ -220,6 +220,7 @@ export default function Dashboard() {
               {rows.length === 0 && <tr><td colSpan={9} className="px-2 py-4 text-neutral-500">No sites{data.rows.length ? ' match this filter.' : ' yet — seed them in Settings, then Run now.'}</td></tr>}
               {rows.map((r, i) => {
                 const m = r.mobile;
+                const d = r.desktop; // CWV columns show desktop (client-facing emphasis)
                 return (
                   <tr key={r.domain} className="border-t border-neutral-800">
                     <td className="px-2 py-1 text-neutral-500">{i + 1}</td>
@@ -230,10 +231,10 @@ export default function Dashboard() {
                     </td>
                     <td className="px-2 py-1"><Score s={r.desktop?.perf_score} /></td>
                     <td className="px-2 py-1"><Score s={m?.perf_score} /></td>
-                    <td className="px-2 py-1"><Vital v={fmtMs(lcpOf(m))} b={band('lcp', lcpOf(m))} /></td>
-                    <td className="px-2 py-1"><Vital v={fmtMs(inpOf(m))} b={band('inp', inpOf(m))} /></td>
-                    <td className="px-2 py-1"><Vital v={fmtCls(clsOf(m))} b={band('cls', clsOf(m))} /></td>
-                    <td className="px-2 py-1"><Vital v={fmtMs(m?.tbt_ms)} b={band('tbt', m?.tbt_ms)} /></td>
+                    <td className="px-2 py-1"><Vital v={fmtMs(lcpOf(d))} b={band('lcp', lcpOf(d))} /></td>
+                    <td className="px-2 py-1"><Vital v={fmtMs(inpOf(d))} b={band('inp', inpOf(d))} /></td>
+                    <td className="px-2 py-1"><Vital v={fmtCls(clsOf(d))} b={band('cls', clsOf(d))} /></td>
+                    <td className="px-2 py-1"><Vital v={fmtMs(d?.tbt_ms)} b={band('tbt', d?.tbt_ms)} /></td>
                     <td className="px-2 py-1 text-neutral-500">{r.last_run ? new Date(r.last_run).toLocaleDateString() : 'never'}</td>
                   </tr>
                 );
