@@ -74,8 +74,9 @@ export async function runSites({ domains = null, force = false, maxMs = 0, sourc
 
   await db.from('pm_settings').upsert({ key: 'last_run', value: new Date().toISOString() });
 
-  // Activity log (fire-and-forget). Single-site force = per-domain "remeasure"; a fleet batch that
-  // actually measured something = one "scan" row (empty idle cron ticks aren't logged).
+  // Activity log (fire-and-forget). Single-site force = per-domain "remeasure". A MANUAL fleet run
+  // logs one "scan" row (for a future dashboard-level feed); the every-5-min CRON does NOT log —
+  // it would spam a scan row per tick forever, and each site's "last run" already reflects it.
   if (domains && domains.length) {
     for (const r of results) {
       await logActivity({
@@ -85,7 +86,7 @@ export async function runSites({ domains = null, force = false, maxMs = 0, sourc
         detail: { mobile: r.scores.mobile, desktop: r.scores.desktop, ok: r.ok, notes: r.notes },
       });
     }
-  } else if (results.length > 0) {
+  } else if (results.length > 0 && source !== 'cron') {
     await logActivity({
       domain: null, event: 'scan', source,
       detail: { ran: results.length, skipped_remaining: pending.length, stopped_early: budgetHit() },
