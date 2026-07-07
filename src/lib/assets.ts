@@ -73,24 +73,27 @@ function collect(html: string, pageUrl: string): Array<{ url: string; type: Asse
   return [...seen.values()];
 }
 
-// Measure real transfer size: GET with compression negotiated, read Content-Length + Content-Encoding
-// from the response headers, then abort before downloading the body.
+// Measure transfer size. HEAD with compression negotiated: no body means undici can't
+// transparently decompress (which strips Content-Length on GET), so the server's Content-Length —
+// the compressed wire size when it advertises Content-Encoding — survives. Falls back to a GET that
+// streams the (decompressed) body and counts bytes when the server won't give a Content-Length on HEAD.
 async function measure(url: string, timeoutMs = 12000): Promise<Pick<ScannedAsset, 'size' | 'encoding' | 'error'>> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  const headers = { 'user-agent': BROWSER_UA, 'accept-encoding': 'br, gzip, deflate', Accept: '*/*' };
   try {
-    const r = await fetch(url, {
-      headers: { 'user-agent': BROWSER_UA, 'accept-encoding': 'br, gzip, deflate', Accept: '*/*' },
-      redirect: 'follow', signal: ctrl.signal,
-    });
-    const cl = r.headers.get('content-length');
-    const encoding = (r.headers.get('content-encoding') || '').split(',')[0].trim();
-    ctrl.abort(); // don't download the body — headers are all we need
-    return { size: cl ? parseInt(cl, 10) : null, encoding };
+    const h = await fetch(url, { method: 'HEAD', headers, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
+    const encoding = (h.headers.get('content-encoding') || '').split(',')[0].trim();
+    const cl = h.headers.get('content-length');
+    if (cl) return { size: parseInt(cl, 10), encoding };
+
+    // No Content-Length on HEAD → GET and count the received bytes (decompressed size upper bound).
+    const g = await fetch(url, { method: 'GET', headers, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
+    const genc = (g.headers.get('content-encoding') || '').split(',')[0].trim() || encoding;
+    const gcl = g.headers.get('content-length');
+    if (gcl) return { size: parseInt(gcl, 10), encoding: genc };
+    const buf = await g.arrayBuffer();
+    return { size: buf.byteLength, encoding: genc };
   } catch (e) {
-    return { size: null, encoding: '', error: (e as Error)?.name === 'AbortError' ? 'timeout' : 'unreachable' };
-  } finally {
-    clearTimeout(t);
+    return { size: null, encoding: '', error: (e as Error)?.name === 'TimeoutError' ? 'timeout' : 'unreachable' };
   }
 }
 
