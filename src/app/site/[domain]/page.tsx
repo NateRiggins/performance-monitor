@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ImageScan, MediaSource } from '@/lib/images';
 import type { AssetScan } from '@/lib/assets';
+import type { CacheScan } from '@/lib/cachecheck';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -205,6 +206,21 @@ const IconCode = () => (
     <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
   </svg>
 );
+const IconCache = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0" />
+  </svg>
+);
+// Human Cache-Control lifetime.
+function maxAgeH(s: number | null): string {
+  if (s == null) return 'no-store';
+  if (s === 0) return 'none';
+  const d = s / 86400;
+  if (d >= 365) return `${(d / 365).toFixed(d >= 730 ? 0 : 1)}y`;
+  if (d >= 1) return `${Math.round(d)}d`;
+  const h = s / 3600; if (h >= 1) return `${Math.round(h)}h`;
+  return `${Math.round(s / 60)}m`;
+}
 
 function timeAgo(iso: string | null): string {
   if (!iso) return 'never';
@@ -249,8 +265,13 @@ export default function SiteDetail() {
   const [assetErr, setAssetErr] = useState('');
   const [assetUrlOpen, setAssetUrlOpen] = useState(false);
   const [assetUrl, setAssetUrl] = useState('');
-  // Which on-demand panel is showing under the status strip. Diagnosis / Images / Scripts are mutually exclusive.
-  const [panel, setPanel] = useState<'none' | 'diag' | 'images' | 'assets'>('none');
+  const [cacheData, setCacheData] = useState<CacheScan | null>(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
+  const [cacheErr, setCacheErr] = useState('');
+  const [cacheUrlOpen, setCacheUrlOpen] = useState(false);
+  const [cacheUrl, setCacheUrl] = useState('');
+  // Which on-demand panel is showing under the status strip. All mutually exclusive.
+  const [panel, setPanel] = useState<'none' | 'diag' | 'images' | 'assets' | 'cache'>('none');
   const [activity, setActivity] = useState<ActivityRow[] | null>(null);
   const [actPage, setActPage] = useState(0);
   const [actTotal, setActTotal] = useState(0);
@@ -342,6 +363,25 @@ export default function SiteDetail() {
       [a.filename, a.type, a.size ?? '', fmtBytes(a.size), a.encoding || 'none', a.party, a.render_blocking ? 'yes' : '', a.note, a.url].map(esc).join(',')));
     downloadCsv(lines, 'scripts-css');
   }
+  // On-demand cache & compression check for one page.
+  async function scanCacheFn() {
+    setPanel('cache'); setCacheBusy(true); setCacheErr('');
+    try {
+      const qs = cacheUrl.trim() ? `?url=${encodeURIComponent(cacheUrl.trim())}` : '';
+      const r = await fetch(`/api/site/${encodeURIComponent(domain)}/cache${qs}`).then((x) => x.json());
+      if (r.error) { setCacheErr(r.error); setCacheData(null); } else setCacheData(r);
+    } catch { setCacheErr('scan failed'); }
+    setCacheBusy(false);
+  }
+  function exportCacheCsv() {
+    if (!cacheData) return;
+    const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const head = ['file', 'kind', 'encoding', 'cache_max_age_s', 'cache_lifetime', 'cacheable', 'cache_status', 'url'];
+    const rows = [cacheData.page, ...cacheData.assets];
+    const lines = [head.join(',')].concat(rows.map((r) =>
+      [r.filename, r.kind, r.encoding || 'none', r.max_age ?? '', maxAgeH(r.max_age), r.cacheable ? 'yes' : 'no', r.hit || '', r.url].map(esc).join(',')));
+    downloadCsv(lines, 'cache');
+  }
   function downloadCsv(lines: string[], kind: string) {
     const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -381,6 +421,7 @@ export default function SiteDetail() {
             <button onClick={() => { if (panel === 'diag') setPanel('none'); else { setPanel('diag'); if (!diag && !diagBusy) analyze(diagStrategy); } }} disabled={diagBusy} title={panel === 'diag' ? 'Hide diagnosis' : diag ? 'Re-analyze — Lighthouse' : 'Analyze — Lighthouse diagnosis'} className={`${ICON_BTN}${panel === 'diag' ? ' border-blue-500 text-white' : ''}`}><IconAnalyze /></button>
             <button onClick={() => { if (panel === 'images') setPanel('none'); else { setPanel('images'); if (!imgs && !imgBusy) scanMedia(); } }} disabled={imgBusy} title={panel === 'images' ? 'Hide images' : 'Scan images & video'} className={`${ICON_BTN}${panel === 'images' ? ' border-blue-500 text-white' : ''}`}><IconScan /></button>
             <button onClick={() => { if (panel === 'assets') setPanel('none'); else { setPanel('assets'); if (!assets && !assetBusy) scanAssetsFn(); } }} disabled={assetBusy} title={panel === 'assets' ? 'Hide scripts & CSS' : 'Scan scripts & CSS weight'} className={`${ICON_BTN}${panel === 'assets' ? ' border-blue-500 text-white' : ''}`}><IconCode /></button>
+            <button onClick={() => { if (panel === 'cache') setPanel('none'); else { setPanel('cache'); if (!cacheData && !cacheBusy) scanCacheFn(); } }} disabled={cacheBusy} title={panel === 'cache' ? 'Hide cache & compression' : 'Check cache & compression'} className={`${ICON_BTN}${panel === 'cache' ? ' border-blue-500 text-white' : ''}`}><IconCache /></button>
             <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className={ICON_BTN}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={favicon('pagespeed.web.dev')} alt="PSI" width={18} height={18} />
@@ -577,6 +618,74 @@ export default function SiteDetail() {
                 </div>
               )}
             <p className="mt-2 text-xs text-neutral-600">Resource sizes (uncompressed — the parse/execute weight). The <b>Enc</b> column shows in-transit compression; <span className="text-red-400">“none”</span> = served uncompressed (Brotli/Gzip off — a problem). Render-blocking = head CSS or head sync scripts. ≥100 KB highlighted.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Cache & compression — is the AMG stack actually working on this page? Same toggle/location pattern. */}
+      {panel === 'cache' && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconCache /> Cache &amp; compression</span>
+            {cacheData && <span className="text-xs text-neutral-500">{cacheData.summary.compressed}/{cacheData.summary.measured} compressed · {cacheData.summary.long_cache}/{cacheData.summary.measured} long-cache · {cacheData.summary.hits}/{cacheData.summary.measured} cache HIT</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {cacheBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
+              <button onClick={() => setCacheUrlOpen((v) => !v)} title="Check a different page on this site" aria-label="Toggle page URL" className={`${ICON_BTN} h-8 w-8${cacheUrlOpen ? ' border-blue-500 text-white' : ''}`}><IconLink /></button>
+              {cacheData && <button onClick={exportCacheCsv} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">Export CSV</button>}
+              <button onClick={scanCacheFn} disabled={cacheBusy} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-50">{cacheBusy ? 'Checking…' : 'Re-check'}</button>
+            </div>
+          </div>
+          {cacheUrlOpen && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="shrink-0 text-xs text-neutral-500">https://{data.site.domain}/</span>
+              <input value={cacheUrl} onChange={(e) => setCacheUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') scanCacheFn(); }}
+                placeholder="path or full URL (blank = homepage)"
+                className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none" />
+            </div>
+          )}
+          <div className="pt-3">
+            {cacheErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{cacheErr}</p>}
+            {cacheBusy && !cacheData ? <Spinner label="Reading cache & compression headers…" />
+              : !cacheData ? <Spinner label="Checking…" />
+              : (() => {
+                const p = cacheData.page;
+                const pill = (ok: boolean | null, label: string, sub: string) => (
+                  <div className="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-wide text-neutral-500">{label}</div>
+                    <div className={`mt-0.5 text-sm font-semibold ${ok == null ? 'text-neutral-400' : ok ? 'text-green-400' : 'text-red-400'}`}>{sub}</div>
+                  </div>
+                );
+                return (
+                  <div className="space-y-3">
+                    {/* Page-level verdict */}
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {pill(!!p.encoding, 'Page compression', p.encoding ? p.encoding.toUpperCase() : 'OFF')}
+                      {pill(p.hit ? p.hit === 'HIT' : null, 'Page cache', p.hit || 'unknown')}
+                      {pill(null, 'CDN / server', p.cdn || p.server || '—')}
+                      {pill(null, 'Sampled assets', `${cacheData.summary.measured}`)}
+                    </div>
+                    <div className="max-h-[24rem] overflow-auto rounded-xl border border-neutral-800">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-neutral-900"><tr className="text-left text-neutral-500">
+                          <th className="px-3 py-2">File</th><th className="w-14 px-3 py-2">Kind</th><th className="w-20 px-3 py-2">Compression</th><th className="w-24 px-3 py-2">Cache life</th><th className="w-20 px-3 py-2">CDN cache</th>
+                        </tr></thead>
+                        <tbody>
+                          {[p, ...cacheData.assets].map((r, i) => (
+                            <tr key={i} className={`border-t border-neutral-800 ${r.kind === 'page' ? 'bg-neutral-950/40' : ''}`}>
+                              <td className="px-3 py-1.5"><a href={r.url} target="_blank" rel="noopener" title={r.url} className="break-all text-blue-400 hover:underline">{r.filename}</a></td>
+                              <td className="px-3 py-1.5 uppercase text-neutral-500">{r.kind}</td>
+                              <td className={`px-3 py-1.5 ${r.error ? 'text-neutral-600' : r.encoding ? 'text-green-400' : 'text-red-400'}`}>{r.error ? '—' : (r.encoding || 'none')}</td>
+                              <td className={`px-3 py-1.5 tabular-nums ${r.kind === 'page' ? 'text-neutral-500' : r.max_age == null ? 'text-red-400' : r.max_age >= 2592000 ? 'text-green-400' : 'text-yellow-400'}`}>{r.error ? '—' : maxAgeH(r.max_age)}</td>
+                              <td className={`px-3 py-1.5 ${r.hit === 'HIT' ? 'text-green-400' : r.hit === 'MISS' ? 'text-yellow-400' : 'text-neutral-500'}`}>{r.hit || '—'}{r.hit && r.hit_source ? <span className="text-neutral-600"> ({r.hit_source})</span> : null}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            <p className="mt-2 text-xs text-neutral-600">Compression <span className="text-red-400">“none”</span> = Brotli/Gzip off. Cache life &lt; 30d is short for static assets (green ≥30d, red = no-store). CDN cache HIT/MISS from cf-cache-status / NitroPack / WP Rocket / x-cache when present. Read-only — the page + a sample of its assets.</p>
           </div>
         </div>
       )}
