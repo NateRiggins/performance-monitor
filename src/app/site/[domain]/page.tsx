@@ -194,11 +194,6 @@ const fmtBytes = (n: number | null): string => {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 };
 const SOURCE_LABEL: Record<MediaSource, string> = { img: 'image', background: 'bg image', video: 'video', poster: 'poster' };
-const IconImage = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-4.5-4.5L5 21" />
-  </svg>
-);
 const IconLink = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
@@ -243,6 +238,8 @@ export default function SiteDetail() {
   const [imgErr, setImgErr] = useState('');
   const [imgUrlOpen, setImgUrlOpen] = useState(false);
   const [imgUrl, setImgUrl] = useState('');
+  // Which on-demand panel is showing under the status strip. Diagnosis and Images are mutually exclusive.
+  const [panel, setPanel] = useState<'none' | 'diag' | 'images'>('none');
   const [activity, setActivity] = useState<ActivityRow[] | null>(null);
   const [actPage, setActPage] = useState(0);
   const [actTotal, setActTotal] = useState(0);
@@ -286,7 +283,7 @@ export default function SiteDetail() {
 
   // On-demand Lighthouse diagnosis — fresh PSI pull, does NOT touch the stored score/history.
   async function analyze(strategy: 'mobile' | 'desktop') {
-    setDiagBusy(true); setDiagErr('');
+    setPanel('diag'); setDiagBusy(true); setDiagErr('');
     if (strategy !== diagStrategy) setDiag(null); // switching tabs: don't show the other form-factor's data while loading
     setDiagStrategy(strategy);
     try {
@@ -299,7 +296,7 @@ export default function SiteDetail() {
 
   // On-demand media scan for one page (homepage by default; imgUrl for another page on this site).
   async function scanMedia() {
-    setImgBusy(true); setImgErr('');
+    setPanel('images'); setImgBusy(true); setImgErr('');
     try {
       const qs = imgUrl.trim() ? `?url=${encodeURIComponent(imgUrl.trim())}` : '';
       const r = await fetch(`/api/site/${encodeURIComponent(domain)}/images${qs}`).then((x) => x.json());
@@ -329,7 +326,6 @@ export default function SiteDetail() {
   // Server (WPE account) drives optimizer availability. NitroPack isn't offered on servers 4 & 5.
   const server = agent?.server ?? null;
   const nitroBlocked = server === 'amgclient4' || server === 'amgclient5';
-  const diagOpen = !!(diag || diagBusy || diagErr);
 
   // Compact plugin state for the status strip.
   const pluginStat = (k: string) => {
@@ -349,7 +345,8 @@ export default function SiteDetail() {
           <h1 className="truncate text-xl font-semibold tracking-tight">{data.site.name || data.site.domain}</h1>
           <div className="flex shrink-0 items-center gap-2">
             <button onClick={reMeasure} disabled={busy} title="Re-measure — refresh the stored score" className={ICON_BTN}><IconRefresh spin={busy} /></button>
-            <button onClick={() => analyze(diagStrategy)} disabled={diagBusy} title={diagOpen ? 'Re-analyze' : 'Analyze — Lighthouse diagnosis'} className={ICON_BTN}><IconAnalyze /></button>
+            <button onClick={() => { if (panel === 'diag') setPanel('none'); else { setPanel('diag'); if (!diag && !diagBusy) analyze(diagStrategy); } }} disabled={diagBusy} title={panel === 'diag' ? 'Hide diagnosis' : diag ? 'Re-analyze — Lighthouse' : 'Analyze — Lighthouse diagnosis'} className={`${ICON_BTN}${panel === 'diag' ? ' border-blue-500 text-white' : ''}`}><IconAnalyze /></button>
+            <button onClick={() => { if (panel === 'images') setPanel('none'); else { setPanel('images'); if (!imgs && !imgBusy) scanMedia(); } }} disabled={imgBusy} title={panel === 'images' ? 'Hide images' : 'Scan images & video'} className={`${ICON_BTN}${panel === 'images' ? ' border-blue-500 text-white' : ''}`}><IconScan /></button>
             <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className={ICON_BTN}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={favicon('pagespeed.web.dev')} alt="PSI" width={18} height={18} />
@@ -384,8 +381,8 @@ export default function SiteDetail() {
         {msg && <div className="border-t border-neutral-800 px-5 py-2 text-xs text-neutral-400">{msg}</div>}
       </div>
 
-      {/* Diagnosis — hidden until Analyze (title bar) is clicked; Mobile/Desktop act as tabs. */}
-      {diagOpen && (
+      {/* Diagnosis — shown when the Analyze icon is toggled on (mutually exclusive with Images). Mobile/Desktop act as tabs. */}
+      {panel === 'diag' && (
         <div>
           <div className="flex items-center gap-1 border-b border-neutral-800">
             {(['desktop', 'mobile'] as const).map((s) => {
@@ -451,58 +448,61 @@ export default function SiteDetail() {
         </div>
       )}
 
+      {/* Images & video — same on-demand behavior/location as Diagnosis; toggled from the title-bar scanner icon, mutually exclusive with it. */}
+      {panel === 'images' && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconScan /> Images &amp; video</span>
+            {imgs && <span className="text-xs text-neutral-500">{imgs.count} assets{imgUrl.trim() ? '' : ' · homepage'} · <span className="font-semibold text-neutral-300">{fmtBytes(imgs.total_bytes)}</span>{imgs.measured < imgs.count ? ` · ${imgs.count - imgs.measured} unmeasured` : ''}</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {imgBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
+              <button onClick={() => setImgUrlOpen((v) => !v)} title="Scan a different page on this site" aria-label="Toggle page URL" className={`${ICON_BTN} h-8 w-8${imgUrlOpen ? ' border-blue-500 text-white' : ''}`}><IconLink /></button>
+              {imgs && <button onClick={exportImagesCsv} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">Export CSV</button>}
+              <button onClick={scanMedia} disabled={imgBusy} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-50">{imgBusy ? 'Scanning…' : 'Re-scan'}</button>
+            </div>
+          </div>
+          {imgUrlOpen && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="shrink-0 text-xs text-neutral-500">https://{data.site.domain}/</span>
+              <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') scanMedia(); }}
+                placeholder="path or full URL (blank = homepage)"
+                className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none" />
+            </div>
+          )}
+          <div className="pt-3">
+            {imgErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{imgErr}</p>}
+            {imgBusy && !imgs ? <Spinner label="Fetching the page and measuring each asset…" />
+              : !imgs ? <Spinner label="Scanning…" />
+              : imgs.images.length === 0 ? <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-400">No images or video found on this page.</p>
+              : (
+                <div className="max-h-[30rem] overflow-auto rounded-xl border border-neutral-800">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-neutral-900"><tr className="text-left text-neutral-500">
+                      <th className="px-3 py-2">File</th><th className="w-24 px-3 py-2 text-right">Size</th><th className="w-20 px-3 py-2">Format</th><th className="w-28 px-3 py-2">Dimensions</th><th className="w-24 px-3 py-2">Type</th>
+                    </tr></thead>
+                    <tbody>{imgs.images.map((im, i) => (
+                      <tr key={i} className="border-t border-neutral-800">
+                        <td className="px-3 py-1.5"><a href={im.url} target="_blank" rel="noopener" title={im.url} className="break-all text-blue-400 hover:underline">{im.filename}</a></td>
+                        <td className={`px-3 py-1.5 text-right tabular-nums ${im.size != null && im.size >= 500 * 1024 ? 'font-semibold text-amber-400' : ''}`} title={im.error || ''}>{im.size != null ? fmtBytes(im.size) : (im.error || '—')}</td>
+                        <td className="px-3 py-1.5 text-neutral-400">{im.format || '—'}</td>
+                        <td className="px-3 py-1.5 tabular-nums text-neutral-400">{im.width && im.height ? `${im.width}×${im.height}` : '—'}</td>
+                        <td className="px-3 py-1.5 text-neutral-500">{SOURCE_LABEL[im.source]}{im.lazy ? ' · lazy' : ''}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            <p className="mt-2 text-xs text-neutral-600">Sizes are what a modern browser downloads (WebP/AVIF when the optimizer serves it). Read-only — fetches only the one page you scan; ≥500 KB highlighted.</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <StrategyCard label="Mobile" run={m} />
         <StrategyCard label="Desktop" run={d} />
       </div>
 
       <TrendChart mob={data.history.mobile ?? []} desk={data.history.desktop ?? []} />
-
-      {/* Images & video — on-demand per-page media scan (homepage by default). */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h3 className="flex items-center gap-2 text-sm font-semibold"><IconImage /> Images &amp; video</h3>
-          {imgs && <span className="text-xs text-neutral-500">{imgs.count} on {imgUrl.trim() ? 'page' : 'homepage'} · <span className="font-semibold text-neutral-300">{fmtBytes(imgs.total_bytes)}</span> total{imgs.measured < imgs.count ? ` · ${imgs.count - imgs.measured} unmeasured` : ''}</span>}
-          <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => setImgUrlOpen((v) => !v)} title="Scan a different page on this site" aria-label="Toggle page URL" className={ICON_BTN}><IconLink /></button>
-            {imgs && <button onClick={exportImagesCsv} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">Export CSV</button>}
-            <button onClick={scanMedia} disabled={imgBusy} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-50">{imgBusy ? 'Scanning…' : imgs ? 'Re-scan' : 'Scan images'}</button>
-          </div>
-        </div>
-
-        {imgUrlOpen && (
-          <div className="mb-3 flex items-center gap-2">
-            <span className="shrink-0 text-xs text-neutral-500">https://{data.site.domain}/</span>
-            <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') scanMedia(); }}
-              placeholder="path or full URL (blank = homepage)"
-              className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none" />
-          </div>
-        )}
-
-        {imgErr && <p className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{imgErr}</p>}
-        {imgBusy && !imgs ? <Spinner label="Fetching the page and measuring each asset…" />
-          : !imgs ? <p className="text-sm text-neutral-500">Scan a page to list every image &amp; video by file name and size (biggest first). Defaults to the homepage; use the 🔗 toggle to check another page.</p>
-          : imgs.images.length === 0 ? <p className="text-sm text-neutral-500">No images or video found on this page.</p>
-          : (
-            <div className="max-h-[30rem] overflow-auto rounded-lg border border-neutral-800">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-neutral-900"><tr className="text-left text-neutral-500">
-                  <th className="px-3 py-2">File</th><th className="w-24 px-3 py-2 text-right">Size</th><th className="w-20 px-3 py-2">Format</th><th className="w-28 px-3 py-2">Dimensions</th><th className="w-24 px-3 py-2">Type</th>
-                </tr></thead>
-                <tbody>{imgs.images.map((im, i) => (
-                  <tr key={i} className="border-t border-neutral-800">
-                    <td className="px-3 py-1.5"><a href={im.url} target="_blank" rel="noopener" title={im.url} className="break-all text-blue-400 hover:underline">{im.filename}</a></td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${im.size != null && im.size >= 500 * 1024 ? 'font-semibold text-amber-400' : ''}`} title={im.error || ''}>{im.size != null ? fmtBytes(im.size) : (im.error || '—')}</td>
-                    <td className="px-3 py-1.5 text-neutral-400">{im.format || '—'}</td>
-                    <td className="px-3 py-1.5 tabular-nums text-neutral-400">{im.width && im.height ? `${im.width}×${im.height}` : '—'}</td>
-                    <td className="px-3 py-1.5 text-neutral-500">{SOURCE_LABEL[im.source]}{im.lazy ? ' · lazy' : ''}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          )}
-        <p className="mt-2 text-xs text-neutral-600">Sizes are what a modern browser downloads (WebP/AVIF when the optimizer serves it). Read-only — fetches only the one page you scan; ≥500 KB highlighted.</p>
-      </div>
 
       {/* Activity log — scans, re-measures, and analyses for this site (AJAX paginated, 10/page). */}
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
