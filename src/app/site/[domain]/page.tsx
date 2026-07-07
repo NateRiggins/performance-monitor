@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import type { ImageScan, MediaSource } from '@/lib/images';
+import type { AssetScan } from '@/lib/assets';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -199,6 +200,11 @@ const IconLink = () => (
     <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
   </svg>
 );
+const IconCode = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+  </svg>
+);
 
 function timeAgo(iso: string | null): string {
   if (!iso) return 'never';
@@ -238,8 +244,13 @@ export default function SiteDetail() {
   const [imgErr, setImgErr] = useState('');
   const [imgUrlOpen, setImgUrlOpen] = useState(false);
   const [imgUrl, setImgUrl] = useState('');
-  // Which on-demand panel is showing under the status strip. Diagnosis and Images are mutually exclusive.
-  const [panel, setPanel] = useState<'none' | 'diag' | 'images'>('none');
+  const [assets, setAssets] = useState<AssetScan | null>(null);
+  const [assetBusy, setAssetBusy] = useState(false);
+  const [assetErr, setAssetErr] = useState('');
+  const [assetUrlOpen, setAssetUrlOpen] = useState(false);
+  const [assetUrl, setAssetUrl] = useState('');
+  // Which on-demand panel is showing under the status strip. Diagnosis / Images / Scripts are mutually exclusive.
+  const [panel, setPanel] = useState<'none' | 'diag' | 'images' | 'assets'>('none');
   const [activity, setActivity] = useState<ActivityRow[] | null>(null);
   const [actPage, setActPage] = useState(0);
   const [actTotal, setActTotal] = useState(0);
@@ -310,9 +321,31 @@ export default function SiteDetail() {
     const head = ['filename', 'size_bytes', 'size', 'format', 'width', 'height', 'type', 'lazy', 'url'];
     const lines = [head.join(',')].concat(imgs.images.map((im) =>
       [im.filename, im.size ?? '', fmtBytes(im.size), im.format, im.width ?? '', im.height ?? '', SOURCE_LABEL[im.source], im.lazy ? 'yes' : '', im.url].map(esc).join(',')));
+    downloadCsv(lines, 'images');
+  }
+
+  // On-demand script & CSS weight scan for one page (homepage by default; assetUrl for another page).
+  async function scanAssetsFn() {
+    setPanel('assets'); setAssetBusy(true); setAssetErr('');
+    try {
+      const qs = assetUrl.trim() ? `?url=${encodeURIComponent(assetUrl.trim())}` : '';
+      const r = await fetch(`/api/site/${encodeURIComponent(domain)}/assets${qs}`).then((x) => x.json());
+      if (r.error) { setAssetErr(r.error); setAssets(null); } else setAssets(r);
+    } catch { setAssetErr('scan failed'); }
+    setAssetBusy(false);
+  }
+  function exportAssetsCsv() {
+    if (!assets) return;
+    const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const head = ['filename', 'type', 'size_bytes', 'size', 'encoding', 'party', 'render_blocking', 'note', 'url'];
+    const lines = [head.join(',')].concat(assets.assets.map((a) =>
+      [a.filename, a.type, a.size ?? '', fmtBytes(a.size), a.encoding || 'none', a.party, a.render_blocking ? 'yes' : '', a.note, a.url].map(esc).join(',')));
+    downloadCsv(lines, 'scripts-css');
+  }
+  function downloadCsv(lines: string[], kind: string) {
     const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `${data?.site.domain || 'site'}-images-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `${data?.site.domain || 'site'}-${kind}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click(); URL.revokeObjectURL(a.href);
   }
 
@@ -347,6 +380,7 @@ export default function SiteDetail() {
             <button onClick={reMeasure} disabled={busy} title="Re-measure — refresh the stored score" className={ICON_BTN}><IconRefresh spin={busy} /></button>
             <button onClick={() => { if (panel === 'diag') setPanel('none'); else { setPanel('diag'); if (!diag && !diagBusy) analyze(diagStrategy); } }} disabled={diagBusy} title={panel === 'diag' ? 'Hide diagnosis' : diag ? 'Re-analyze — Lighthouse' : 'Analyze — Lighthouse diagnosis'} className={`${ICON_BTN}${panel === 'diag' ? ' border-blue-500 text-white' : ''}`}><IconAnalyze /></button>
             <button onClick={() => { if (panel === 'images') setPanel('none'); else { setPanel('images'); if (!imgs && !imgBusy) scanMedia(); } }} disabled={imgBusy} title={panel === 'images' ? 'Hide images' : 'Scan images & video'} className={`${ICON_BTN}${panel === 'images' ? ' border-blue-500 text-white' : ''}`}><IconScan /></button>
+            <button onClick={() => { if (panel === 'assets') setPanel('none'); else { setPanel('assets'); if (!assets && !assetBusy) scanAssetsFn(); } }} disabled={assetBusy} title={panel === 'assets' ? 'Hide scripts & CSS' : 'Scan scripts & CSS weight'} className={`${ICON_BTN}${panel === 'assets' ? ' border-blue-500 text-white' : ''}`}><IconCode /></button>
             <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className={ICON_BTN}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={favicon('pagespeed.web.dev')} alt="PSI" width={18} height={18} />
@@ -493,6 +527,56 @@ export default function SiteDetail() {
                 </div>
               )}
             <p className="mt-2 text-xs text-neutral-600">Sizes are what a modern browser downloads (WebP/AVIF when the optimizer serves it). Read-only — fetches only the one page you scan; ≥500 KB highlighted.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Scripts & CSS weight — same on-demand behavior/location as Diagnosis; toggled from the title-bar </> icon, mutually exclusive. */}
+      {panel === 'assets' && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconCode /> Scripts &amp; CSS</span>
+            {assets && <span className="text-xs text-neutral-500">{assets.count} files · <span className="font-semibold text-neutral-300">{fmtBytes(assets.total_bytes)}</span> · JS {fmtBytes(assets.js.bytes)} / CSS {fmtBytes(assets.css.bytes)} · <span className="text-amber-400">{assets.render_blocking} render-blocking</span> · {assets.third_party} third-party{assets.measured < assets.count ? ` · ${assets.count - assets.measured} unmeasured` : ''}</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {assetBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
+              <button onClick={() => setAssetUrlOpen((v) => !v)} title="Scan a different page on this site" aria-label="Toggle page URL" className={`${ICON_BTN} h-8 w-8${assetUrlOpen ? ' border-blue-500 text-white' : ''}`}><IconLink /></button>
+              {assets && <button onClick={exportAssetsCsv} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">Export CSV</button>}
+              <button onClick={scanAssetsFn} disabled={assetBusy} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-50">{assetBusy ? 'Scanning…' : 'Re-scan'}</button>
+            </div>
+          </div>
+          {assetUrlOpen && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="shrink-0 text-xs text-neutral-500">https://{data.site.domain}/</span>
+              <input value={assetUrl} onChange={(e) => setAssetUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') scanAssetsFn(); }}
+                placeholder="path or full URL (blank = homepage)"
+                className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none" />
+            </div>
+          )}
+          <div className="pt-3">
+            {assetErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{assetErr}</p>}
+            {assetBusy && !assets ? <Spinner label="Fetching the page and weighing each script & stylesheet…" />
+              : !assets ? <Spinner label="Scanning…" />
+              : assets.assets.length === 0 ? <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-400">No external scripts or stylesheets found on this page.</p>
+              : (
+                <div className="max-h-[30rem] overflow-auto rounded-xl border border-neutral-800">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-neutral-900"><tr className="text-left text-neutral-500">
+                      <th className="px-3 py-2">File</th><th className="w-14 px-3 py-2">Type</th><th className="w-24 px-3 py-2 text-right">Size</th><th className="w-16 px-3 py-2">Enc</th><th className="w-16 px-3 py-2">Party</th><th className="px-3 py-2">Loading</th>
+                    </tr></thead>
+                    <tbody>{assets.assets.map((a, i) => (
+                      <tr key={i} className="border-t border-neutral-800">
+                        <td className="px-3 py-1.5"><a href={a.url} target="_blank" rel="noopener" title={a.url} className="break-all text-blue-400 hover:underline">{a.filename}</a></td>
+                        <td className="px-3 py-1.5 uppercase text-neutral-500">{a.type}</td>
+                        <td className={`px-3 py-1.5 text-right tabular-nums ${a.size != null && a.size >= 100 * 1024 ? 'font-semibold text-amber-400' : ''}`} title={a.error || ''}>{a.size != null ? fmtBytes(a.size) : (a.error || '—')}</td>
+                        <td className={`px-3 py-1.5 ${a.encoding ? 'text-green-400' : 'text-red-400'}`} title={a.encoding ? 'compressed' : 'not compressed'}>{a.encoding || 'none'}</td>
+                        <td className={`px-3 py-1.5 ${a.party === 'third' ? 'text-amber-400' : 'text-neutral-500'}`}>{a.party === 'third' ? '3rd' : '1st'}</td>
+                        <td className={`px-3 py-1.5 ${a.render_blocking ? 'text-amber-400' : 'text-neutral-500'}`}>{a.note}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            <p className="mt-2 text-xs text-neutral-600">Transfer sizes (compressed, as a browser downloads). <span className="text-red-400">Enc “none”</span> = uncompressed (Brotli/Gzip off). Render-blocking = head CSS or head sync scripts. ≥100 KB highlighted.</p>
           </div>
         </div>
       )}
