@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ImageScan, MediaSource } from '@/lib/images';
 import type { AssetScan } from '@/lib/assets';
 import type { CacheScan } from '@/lib/cachecheck';
+import type { ThirdPartyScan } from '@/lib/thirdparty';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -211,6 +212,11 @@ const IconCache = () => (
     <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0" />
   </svg>
 );
+const IconGlobe = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" />
+  </svg>
+);
 // Human Cache-Control lifetime.
 function maxAgeH(s: number | null): string {
   if (s == null) return 'no-store';
@@ -270,8 +276,13 @@ export default function SiteDetail() {
   const [cacheErr, setCacheErr] = useState('');
   const [cacheUrlOpen, setCacheUrlOpen] = useState(false);
   const [cacheUrl, setCacheUrl] = useState('');
+  const [tp, setTp] = useState<ThirdPartyScan | null>(null);
+  const [tpBusy, setTpBusy] = useState(false);
+  const [tpErr, setTpErr] = useState('');
+  const [tpUrlOpen, setTpUrlOpen] = useState(false);
+  const [tpUrl, setTpUrl] = useState('');
   // Which on-demand panel is showing under the status strip. All mutually exclusive.
-  const [panel, setPanel] = useState<'none' | 'diag' | 'images' | 'assets' | 'cache'>('none');
+  const [panel, setPanel] = useState<'none' | 'diag' | 'images' | 'assets' | 'cache' | 'thirdparty'>('none');
   const [activity, setActivity] = useState<ActivityRow[] | null>(null);
   const [actPage, setActPage] = useState(0);
   const [actTotal, setActTotal] = useState(0);
@@ -382,6 +393,24 @@ export default function SiteDetail() {
       [r.filename, r.kind, r.encoding || 'none', r.max_age ?? '', maxAgeH(r.max_age), r.cacheable ? 'yes' : 'no', r.hit || '', r.url].map(esc).join(',')));
     downloadCsv(lines, 'cache');
   }
+  // On-demand third-party request map for one page.
+  async function scanTpFn() {
+    setPanel('thirdparty'); setTpBusy(true); setTpErr('');
+    try {
+      const qs = tpUrl.trim() ? `?url=${encodeURIComponent(tpUrl.trim())}` : '';
+      const r = await fetch(`/api/site/${encodeURIComponent(domain)}/thirdparty${qs}`).then((x) => x.json());
+      if (r.error) { setTpErr(r.error); setTp(null); } else setTp(r);
+    } catch { setTpErr('scan failed'); }
+    setTpBusy(false);
+  }
+  function exportTpCsv() {
+    if (!tp) return;
+    const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const head = ['host', 'party', 'requests', 'bytes', 'size', 'types'];
+    const lines = [head.join(',')].concat(tp.hosts.map((h) =>
+      [h.host, h.party, h.requests, h.bytes, fmtBytes(h.bytes || null), h.types.join(' ')].map(esc).join(',')));
+    downloadCsv(lines, 'third-party');
+  }
   function downloadCsv(lines: string[], kind: string) {
     const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -422,6 +451,7 @@ export default function SiteDetail() {
             <button onClick={() => { if (panel === 'images') setPanel('none'); else { setPanel('images'); if (!imgs && !imgBusy) scanMedia(); } }} disabled={imgBusy} title={panel === 'images' ? 'Hide images' : 'Scan images & video'} className={`${ICON_BTN}${panel === 'images' ? ' border-blue-500 text-white' : ''}`}><IconScan /></button>
             <button onClick={() => { if (panel === 'assets') setPanel('none'); else { setPanel('assets'); if (!assets && !assetBusy) scanAssetsFn(); } }} disabled={assetBusy} title={panel === 'assets' ? 'Hide scripts & CSS' : 'Scan scripts & CSS weight'} className={`${ICON_BTN}${panel === 'assets' ? ' border-blue-500 text-white' : ''}`}><IconCode /></button>
             <button onClick={() => { if (panel === 'cache') setPanel('none'); else { setPanel('cache'); if (!cacheData && !cacheBusy) scanCacheFn(); } }} disabled={cacheBusy} title={panel === 'cache' ? 'Hide cache & compression' : 'Check cache & compression'} className={`${ICON_BTN}${panel === 'cache' ? ' border-blue-500 text-white' : ''}`}><IconCache /></button>
+            <button onClick={() => { if (panel === 'thirdparty') setPanel('none'); else { setPanel('thirdparty'); if (!tp && !tpBusy) scanTpFn(); } }} disabled={tpBusy} title={panel === 'thirdparty' ? 'Hide third-party map' : 'Map third-party requests'} className={`${ICON_BTN}${panel === 'thirdparty' ? ' border-blue-500 text-white' : ''}`}><IconGlobe /></button>
             <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className={ICON_BTN}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={favicon('pagespeed.web.dev')} alt="PSI" width={18} height={18} />
@@ -627,7 +657,7 @@ export default function SiteDetail() {
         <div>
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
             <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconCache /> Cache &amp; compression</span>
-            {cacheData && <span className="text-xs text-neutral-500">{cacheData.summary.compressed}/{cacheData.summary.measured} compressed · {cacheData.summary.long_cache}/{cacheData.summary.measured} long-cache · {cacheData.summary.hits}/{cacheData.summary.measured} cache HIT</span>}
+            {cacheData && <span className="text-xs text-neutral-500">{cacheData.summary.compressed}/{cacheData.summary.compressible} CSS/JS compressed · {cacheData.summary.long_cache}/{cacheData.summary.measured} long-cache · {cacheData.summary.hits}/{cacheData.summary.measured} cache HIT</span>}
             <div className="ml-auto flex items-center gap-2">
               {cacheBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
               <button onClick={() => setCacheUrlOpen((v) => !v)} title="Check a different page on this site" aria-label="Toggle page URL" className={`${ICON_BTN} h-8 w-8${cacheUrlOpen ? ' border-blue-500 text-white' : ''}`}><IconLink /></button>
@@ -674,7 +704,7 @@ export default function SiteDetail() {
                             <tr key={i} className={`border-t border-neutral-800 ${r.kind === 'page' ? 'bg-neutral-950/40' : ''}`}>
                               <td className="px-3 py-1.5"><a href={r.url} target="_blank" rel="noopener" title={r.url} className="break-all text-blue-400 hover:underline">{r.filename}</a></td>
                               <td className="px-3 py-1.5 uppercase text-neutral-500">{r.kind}</td>
-                              <td className={`px-3 py-1.5 ${r.error ? 'text-neutral-600' : r.encoding ? 'text-green-400' : 'text-red-400'}`}>{r.error ? '—' : (r.encoding || 'none')}</td>
+                              <td className={`px-3 py-1.5 ${r.error ? 'text-neutral-600' : r.encoding ? 'text-green-400' : r.kind === 'img' ? 'text-neutral-500' : 'text-red-400'}`}>{r.error ? '—' : (r.encoding || (r.kind === 'img' ? 'n/a' : 'none'))}</td>
                               <td className={`px-3 py-1.5 tabular-nums ${r.kind === 'page' ? 'text-neutral-500' : r.max_age == null ? 'text-red-400' : r.max_age >= 2592000 ? 'text-green-400' : 'text-yellow-400'}`}>{r.error ? '—' : maxAgeH(r.max_age)}</td>
                               <td className={`px-3 py-1.5 ${r.hit === 'HIT' ? 'text-green-400' : r.hit === 'MISS' ? 'text-yellow-400' : 'text-neutral-500'}`}>{r.hit || '—'}{r.hit && r.hit_source ? <span className="text-neutral-600"> ({r.hit_source})</span> : null}</td>
                             </tr>
@@ -686,6 +716,55 @@ export default function SiteDetail() {
                 );
               })()}
             <p className="mt-2 text-xs text-neutral-600">Compression <span className="text-red-400">“none”</span> = Brotli/Gzip off. Cache life &lt; 30d is short for static assets (green ≥30d, red = no-store). CDN cache HIT/MISS from cf-cache-status / NitroPack / WP Rocket / x-cache when present. Read-only — the page + a sample of its assets.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Third-party request map — every external domain the page pulls from, grouped by host. */}
+      {panel === 'thirdparty' && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconGlobe /> Third-party requests</span>
+            {tp && <span className="text-xs text-neutral-500"><span className="font-semibold text-amber-400">{tp.summary.third_domains} domains</span> · {tp.summary.third_requests} requests · <span className="font-semibold text-neutral-300">{fmtBytes(tp.summary.third_bytes || null)}</span> · {tp.summary.first_requests} first-party</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {tpBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
+              <button onClick={() => setTpUrlOpen((v) => !v)} title="Map a different page on this site" aria-label="Toggle page URL" className={`${ICON_BTN} h-8 w-8${tpUrlOpen ? ' border-blue-500 text-white' : ''}`}><IconLink /></button>
+              {tp && <button onClick={exportTpCsv} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">Export CSV</button>}
+              <button onClick={scanTpFn} disabled={tpBusy} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-50">{tpBusy ? 'Mapping…' : 'Re-scan'}</button>
+            </div>
+          </div>
+          {tpUrlOpen && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="shrink-0 text-xs text-neutral-500">https://{data.site.domain}/</span>
+              <input value={tpUrl} onChange={(e) => setTpUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') scanTpFn(); }}
+                placeholder="path or full URL (blank = homepage)"
+                className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none" />
+            </div>
+          )}
+          <div className="pt-3">
+            {tpErr && <p className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{tpErr}</p>}
+            {tpBusy && !tp ? <Spinner label="Mapping external domains…" />
+              : !tp ? <Spinner label="Mapping…" />
+              : tp.hosts.length === 0 ? <p className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-400">No external requests found on this page.</p>
+              : (
+                <div className="max-h-[30rem] overflow-auto rounded-xl border border-neutral-800">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-neutral-900"><tr className="text-left text-neutral-500">
+                      <th className="px-3 py-2">Domain</th><th className="w-16 px-3 py-2">Party</th><th className="w-20 px-3 py-2 text-right">Requests</th><th className="w-24 px-3 py-2 text-right">Size</th><th className="px-3 py-2">Types</th>
+                    </tr></thead>
+                    <tbody>{tp.hosts.map((h, i) => (
+                      <tr key={i} className="border-t border-neutral-800">
+                        <td className="px-3 py-1.5 break-all">{h.host}</td>
+                        <td className={`px-3 py-1.5 ${h.party === 'third' ? 'text-amber-400' : 'text-neutral-500'}`}>{h.party === 'third' ? '3rd' : '1st'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{h.requests}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-neutral-400">{h.bytes ? fmtBytes(h.bytes) : '—'}</td>
+                        <td className="px-3 py-1.5 text-neutral-500">{h.types.join(', ')}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            <p className="mt-2 text-xs text-neutral-600">External domains the page requests, grouped by host (third-party in amber, sorted heaviest first). “hint” = preconnect/dns-prefetch (no bytes). Sizes are best-effort (some hosts omit Content-Length). Read-only.</p>
           </div>
         </div>
       )}

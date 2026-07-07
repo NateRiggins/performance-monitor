@@ -18,7 +18,7 @@ export type CacheScan = {
   url: string;
   page: CacheRow & { server: string; cdn: string };
   assets: CacheRow[];
-  summary: { assets: number; compressed: number; long_cache: number; hits: number; measured: number };
+  summary: { assets: number; compressed: number; compressible: number; long_cache: number; hits: number; measured: number };
 };
 
 const LONG_CACHE = 2592000; // 30 days — the bar for a "long" static cache lifetime
@@ -101,11 +101,13 @@ export async function scanCache(pageUrl: string): Promise<CacheScan> {
   const sample = sampleAssets(html, pageUrl);
   const assets = await Promise.all(sample.map((s) => head(s.url, s.kind)));
   const measured = assets.filter((a) => a.status != null);
+  const compressible = measured.filter((a) => a.kind === 'css' || a.kind === 'js'); // images/fonts don't gzip
   return {
     url: pageUrl, page, assets,
     summary: {
       assets: assets.length,
-      compressed: measured.filter((a) => a.encoding).length,
+      compressed: compressible.filter((a) => a.encoding).length,
+      compressible: compressible.length,
       long_cache: measured.filter((a) => a.max_age != null && a.max_age >= LONG_CACHE).length,
       hits: measured.filter((a) => a.hit === 'HIT').length,
       measured: measured.length,
