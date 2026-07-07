@@ -576,7 +576,7 @@ export default function SiteDetail() {
                   </table>
                 </div>
               )}
-            <p className="mt-2 text-xs text-neutral-600">Transfer sizes (compressed, as a browser downloads). <span className="text-red-400">Enc “none”</span> = uncompressed (Brotli/Gzip off). Render-blocking = head CSS or head sync scripts. ≥100 KB highlighted.</p>
+            <p className="mt-2 text-xs text-neutral-600">Resource sizes (uncompressed — the parse/execute weight). The <b>Enc</b> column shows in-transit compression; <span className="text-red-400">“none”</span> = served uncompressed (Brotli/Gzip off — a problem). Render-blocking = head CSS or head sync scripts. ≥100 KB highlighted.</p>
           </div>
         </div>
       )}
