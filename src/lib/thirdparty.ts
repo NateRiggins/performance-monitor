@@ -5,11 +5,12 @@
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 export type TPType = 'script' | 'style' | 'img' | 'video' | 'font' | 'iframe' | 'hint';
-export type TPHost = { host: string; party: 'first' | 'third'; requests: number; bytes: number; measured: number; types: string[] };
+export type TPParty = 'first' | 'cdn' | 'third';
+export type TPHost = { host: string; party: TPParty; requests: number; bytes: number; measured: number; types: string[] };
 export type ThirdPartyScan = {
   url: string;
   hosts: TPHost[];
-  summary: { third_domains: number; third_requests: number; third_bytes: number; first_requests: number; total_requests: number };
+  summary: { third_domains: number; third_requests: number; third_bytes: number; cdn_domains: number; first_requests: number; total_requests: number };
 };
 
 const TWO_LEVEL = new Set(['co.uk', 'org.uk', 'com.au', 'co.nz', 'co.jp', 'com.br', 'co.za', 'ne.jp', 'or.jp']);
@@ -18,6 +19,15 @@ function registrable(host: string): string {
   if (p.length <= 2) return host.toLowerCase();
   return TWO_LEVEL.has(p.slice(-2).join('.')) ? p.slice(-3).join('.') : p.slice(-2).join('.');
 }
+
+// Known asset-CDN registrable domains: these serve the SITE'S OWN assets from a different domain, so
+// they're not genuine third parties (not removable). Tagging them keeps the "third-party" count honest.
+const CDN_DOMAINS = new Set([
+  'nitrocdn.com', 'cloudflare.com', 'jsdelivr.net', 'unpkg.com', 'wp.com', 'gravatar.com',
+  'cloudfront.net', 'akamaized.net', 'akamai.net', 'fastly.net', 'fastlylb.net', 'b-cdn.net',
+  'bunnycdn.com', 'stackpathcdn.com', 'kxcdn.com', 'netdna-ssl.com', 'gstatic.com',
+  'wpenginepowered.com', 'wpengine.com', 'shortpixel.ai', 'shortpixel.com', 'imgix.net', 'cloudinary.com',
+]);
 
 function collect(html: string, pageUrl: string): Array<{ url: string; type: TPType }> {
   const out: Array<{ url: string; type: TPType }> = [];
@@ -80,7 +90,8 @@ export async function scanThirdParty(pageUrl: string, opts: { maxMeasure?: numbe
   const hosts = new Map<string, TPHost>();
   for (const [url, type] of byUrl) {
     let host: string; try { host = new URL(url).hostname; } catch { continue; }
-    const party: 'first' | 'third' = registrable(host) === pageDomain ? 'first' : 'third';
+    const reg = registrable(host);
+    const party: TPParty = reg === pageDomain ? 'first' : CDN_DOMAINS.has(reg) ? 'cdn' : 'third';
     let h = hosts.get(host);
     if (!h) { h = { host, party, requests: 0, bytes: 0, measured: 0, types: [] }; hosts.set(host, h); }
     h.requests++;
@@ -89,8 +100,10 @@ export async function scanThirdParty(pageUrl: string, opts: { maxMeasure?: numbe
     if (b != null) { h.bytes += b; h.measured++; }
   }
 
+  // Order: genuine third parties first (the worklist), then CDNs, then first-party.
+  const rank = (p: TPParty) => (p === 'third' ? 0 : p === 'cdn' ? 1 : 2);
   const list = [...hosts.values()].sort((a, b) =>
-    a.party !== b.party ? (a.party === 'third' ? -1 : 1) : (b.bytes - a.bytes) || (b.requests - a.requests));
+    rank(a.party) - rank(b.party) || (b.bytes - a.bytes) || (b.requests - a.requests));
   const third = list.filter((h) => h.party === 'third');
   return {
     url: pageUrl, hosts: list,
@@ -98,6 +111,7 @@ export async function scanThirdParty(pageUrl: string, opts: { maxMeasure?: numbe
       third_domains: third.length,
       third_requests: third.reduce((s, h) => s + h.requests, 0),
       third_bytes: third.reduce((s, h) => s + h.bytes, 0),
+      cdn_domains: list.filter((h) => h.party === 'cdn').length,
       first_requests: list.filter((h) => h.party === 'first').reduce((s, h) => s + h.requests, 0),
       total_requests: list.reduce((s, h) => s + h.requests, 0),
     },

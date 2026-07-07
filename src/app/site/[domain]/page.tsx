@@ -217,6 +217,11 @@ const IconGlobe = () => (
     <circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" />
   </svg>
 );
+const IconSearch = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+  </svg>
+);
 // Human Cache-Control lifetime.
 function maxAgeH(s: number | null): string {
   if (s == null) return 'no-store';
@@ -281,8 +286,10 @@ export default function SiteDetail() {
   const [tpErr, setTpErr] = useState('');
   const [tpUrlOpen, setTpUrlOpen] = useState(false);
   const [tpUrl, setTpUrl] = useState('');
-  // Which on-demand panel is showing under the status strip. All mutually exclusive.
-  const [panel, setPanel] = useState<'none' | 'diag' | 'images' | 'assets' | 'cache' | 'thirdparty'>('none');
+  // Under the status strip: Analyze (diag) and the Inspect suite are mutually exclusive; the Inspect
+  // suite groups the four page-inspectors as sub-tabs.
+  const [panel, setPanel] = useState<'none' | 'diag' | 'inspect'>('none');
+  const [inspectTab, setInspectTab] = useState<'images' | 'assets' | 'cache' | 'thirdparty'>('images');
   const [activity, setActivity] = useState<ActivityRow[] | null>(null);
   const [actPage, setActPage] = useState(0);
   const [actTotal, setActTotal] = useState(0);
@@ -339,7 +346,7 @@ export default function SiteDetail() {
 
   // On-demand media scan for one page (homepage by default; imgUrl for another page on this site).
   async function scanMedia() {
-    setPanel('images'); setImgBusy(true); setImgErr('');
+    setPanel('inspect'); setInspectTab('images'); setImgBusy(true); setImgErr('');
     try {
       const qs = imgUrl.trim() ? `?url=${encodeURIComponent(imgUrl.trim())}` : '';
       const r = await fetch(`/api/site/${encodeURIComponent(domain)}/images${qs}`).then((x) => x.json());
@@ -358,7 +365,7 @@ export default function SiteDetail() {
 
   // On-demand script & CSS weight scan for one page (homepage by default; assetUrl for another page).
   async function scanAssetsFn() {
-    setPanel('assets'); setAssetBusy(true); setAssetErr('');
+    setPanel('inspect'); setInspectTab('assets'); setAssetBusy(true); setAssetErr('');
     try {
       const qs = assetUrl.trim() ? `?url=${encodeURIComponent(assetUrl.trim())}` : '';
       const r = await fetch(`/api/site/${encodeURIComponent(domain)}/assets${qs}`).then((x) => x.json());
@@ -376,7 +383,7 @@ export default function SiteDetail() {
   }
   // On-demand cache & compression check for one page.
   async function scanCacheFn() {
-    setPanel('cache'); setCacheBusy(true); setCacheErr('');
+    setPanel('inspect'); setInspectTab('cache'); setCacheBusy(true); setCacheErr('');
     try {
       const qs = cacheUrl.trim() ? `?url=${encodeURIComponent(cacheUrl.trim())}` : '';
       const r = await fetch(`/api/site/${encodeURIComponent(domain)}/cache${qs}`).then((x) => x.json());
@@ -395,7 +402,7 @@ export default function SiteDetail() {
   }
   // On-demand third-party request map for one page.
   async function scanTpFn() {
-    setPanel('thirdparty'); setTpBusy(true); setTpErr('');
+    setPanel('inspect'); setInspectTab('thirdparty'); setTpBusy(true); setTpErr('');
     try {
       const qs = tpUrl.trim() ? `?url=${encodeURIComponent(tpUrl.trim())}` : '';
       const r = await fetch(`/api/site/${encodeURIComponent(domain)}/thirdparty${qs}`).then((x) => x.json());
@@ -410,6 +417,14 @@ export default function SiteDetail() {
     const lines = [head.join(',')].concat(tp.hosts.map((h) =>
       [h.host, h.party, h.requests, h.bytes, fmtBytes(h.bytes || null), h.types.join(' ')].map(esc).join(',')));
     downloadCsv(lines, 'third-party');
+  }
+  // Open the Inspect suite on a given sub-tool, running its scan if it hasn't loaded yet.
+  function selectInspect(tab: 'images' | 'assets' | 'cache' | 'thirdparty') {
+    setPanel('inspect'); setInspectTab(tab);
+    if (tab === 'images' && !imgs && !imgBusy) scanMedia();
+    else if (tab === 'assets' && !assets && !assetBusy) scanAssetsFn();
+    else if (tab === 'cache' && !cacheData && !cacheBusy) scanCacheFn();
+    else if (tab === 'thirdparty' && !tp && !tpBusy) scanTpFn();
   }
   function downloadCsv(lines: string[], kind: string) {
     const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
@@ -448,10 +463,7 @@ export default function SiteDetail() {
           <div className="flex shrink-0 items-center gap-2">
             <button onClick={reMeasure} disabled={busy} title="Re-measure — refresh the stored score" className={ICON_BTN}><IconRefresh spin={busy} /></button>
             <button onClick={() => { if (panel === 'diag') setPanel('none'); else { setPanel('diag'); if (!diag && !diagBusy) analyze(diagStrategy); } }} disabled={diagBusy} title={panel === 'diag' ? 'Hide diagnosis' : diag ? 'Re-analyze — Lighthouse' : 'Analyze — Lighthouse diagnosis'} className={`${ICON_BTN}${panel === 'diag' ? ' border-blue-500 text-white' : ''}`}><IconAnalyze /></button>
-            <button onClick={() => { if (panel === 'images') setPanel('none'); else { setPanel('images'); if (!imgs && !imgBusy) scanMedia(); } }} disabled={imgBusy} title={panel === 'images' ? 'Hide images' : 'Scan images & video'} className={`${ICON_BTN}${panel === 'images' ? ' border-blue-500 text-white' : ''}`}><IconScan /></button>
-            <button onClick={() => { if (panel === 'assets') setPanel('none'); else { setPanel('assets'); if (!assets && !assetBusy) scanAssetsFn(); } }} disabled={assetBusy} title={panel === 'assets' ? 'Hide scripts & CSS' : 'Scan scripts & CSS weight'} className={`${ICON_BTN}${panel === 'assets' ? ' border-blue-500 text-white' : ''}`}><IconCode /></button>
-            <button onClick={() => { if (panel === 'cache') setPanel('none'); else { setPanel('cache'); if (!cacheData && !cacheBusy) scanCacheFn(); } }} disabled={cacheBusy} title={panel === 'cache' ? 'Hide cache & compression' : 'Check cache & compression'} className={`${ICON_BTN}${panel === 'cache' ? ' border-blue-500 text-white' : ''}`}><IconCache /></button>
-            <button onClick={() => { if (panel === 'thirdparty') setPanel('none'); else { setPanel('thirdparty'); if (!tp && !tpBusy) scanTpFn(); } }} disabled={tpBusy} title={panel === 'thirdparty' ? 'Hide third-party map' : 'Map third-party requests'} className={`${ICON_BTN}${panel === 'thirdparty' ? ' border-blue-500 text-white' : ''}`}><IconGlobe /></button>
+            <button onClick={() => { if (panel === 'inspect') setPanel('none'); else selectInspect(inspectTab); }} title={panel === 'inspect' ? 'Hide page inspector' : 'Inspect page — images, scripts, cache, third-parties'} className={`${ICON_BTN}${panel === 'inspect' ? ' border-blue-500 text-white' : ''}`}><IconSearch /></button>
             <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(`https://${data.site.domain}/`)}`} target="_blank" rel="noopener" title="Open in PageSpeed Insights" className={ICON_BTN}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={favicon('pagespeed.web.dev')} alt="PSI" width={18} height={18} />
@@ -553,8 +565,27 @@ export default function SiteDetail() {
         </div>
       )}
 
-      {/* Images & video — same on-demand behavior/location as Diagnosis; toggled from the title-bar scanner icon, mutually exclusive with it. */}
-      {panel === 'images' && (
+      {/* Page Inspector — four page-inspection sub-tools as tabs, under one title-bar icon. Mutually exclusive with Analyze. */}
+      {panel === 'inspect' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-1 border-b border-neutral-800 text-sm">
+            {[
+              { k: 'images', label: 'Images & video', icon: <IconScan /> },
+              { k: 'assets', label: 'Scripts & CSS', icon: <IconCode /> },
+              { k: 'cache', label: 'Cache', icon: <IconCache /> },
+              { k: 'thirdparty', label: 'Third-party', icon: <IconGlobe /> },
+            ].map((t) => {
+              const active = inspectTab === t.k;
+              return (
+                <button key={t.k} onClick={() => selectInspect(t.k as 'images' | 'assets' | 'cache' | 'thirdparty')}
+                  className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 font-medium ${active ? 'border-blue-500 text-white' : 'border-transparent text-neutral-500 hover:text-neutral-300'}`}>
+                  {t.icon}{t.label}
+                </button>
+              );
+            })}
+          </div>
+
+      {inspectTab === 'images' && (
         <div>
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
             <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconScan /> Images &amp; video</span>
@@ -602,8 +633,8 @@ export default function SiteDetail() {
         </div>
       )}
 
-      {/* Scripts & CSS weight — same on-demand behavior/location as Diagnosis; toggled from the title-bar </> icon, mutually exclusive. */}
-      {panel === 'assets' && (
+      {/* Scripts & CSS weight sub-tab. */}
+      {inspectTab === 'assets' && (
         <div>
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
             <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconCode /> Scripts &amp; CSS</span>
@@ -652,8 +683,8 @@ export default function SiteDetail() {
         </div>
       )}
 
-      {/* Cache & compression — is the AMG stack actually working on this page? Same toggle/location pattern. */}
-      {panel === 'cache' && (
+      {/* Cache & compression sub-tab — is the AMG stack actually working on this page? */}
+      {inspectTab === 'cache' && (
         <div>
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
             <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconCache /> Cache &amp; compression</span>
@@ -720,12 +751,12 @@ export default function SiteDetail() {
         </div>
       )}
 
-      {/* Third-party request map — every external domain the page pulls from, grouped by host. */}
-      {panel === 'thirdparty' && (
+      {/* Third-party request map sub-tab — every external domain the page pulls from, grouped by host. */}
+      {inspectTab === 'thirdparty' && (
         <div>
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-2">
             <span className="flex items-center gap-1.5 text-sm font-medium text-white"><IconGlobe /> Third-party requests</span>
-            {tp && <span className="text-xs text-neutral-500"><span className="font-semibold text-amber-400">{tp.summary.third_domains} domains</span> · {tp.summary.third_requests} requests · <span className="font-semibold text-neutral-300">{fmtBytes(tp.summary.third_bytes || null)}</span> · {tp.summary.first_requests} first-party</span>}
+            {tp && <span className="text-xs text-neutral-500"><span className="font-semibold text-amber-400">{tp.summary.third_domains} third-party</span> · {tp.summary.third_requests} req · <span className="font-semibold text-neutral-300">{fmtBytes(tp.summary.third_bytes || null)}</span> · <span className="text-sky-400">{tp.summary.cdn_domains} CDN</span> · {tp.summary.first_requests} first-party req</span>}
             <div className="ml-auto flex items-center gap-2">
               {tpBusy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-700 border-t-blue-500" />}
               <button onClick={() => setTpUrlOpen((v) => !v)} title="Map a different page on this site" aria-label="Toggle page URL" className={`${ICON_BTN} h-8 w-8${tpUrlOpen ? ' border-blue-500 text-white' : ''}`}><IconLink /></button>
@@ -755,7 +786,7 @@ export default function SiteDetail() {
                     <tbody>{tp.hosts.map((h, i) => (
                       <tr key={i} className="border-t border-neutral-800">
                         <td className="px-3 py-1.5 break-all">{h.host}</td>
-                        <td className={`px-3 py-1.5 ${h.party === 'third' ? 'text-amber-400' : 'text-neutral-500'}`}>{h.party === 'third' ? '3rd' : '1st'}</td>
+                        <td className={`px-3 py-1.5 ${h.party === 'third' ? 'text-amber-400' : h.party === 'cdn' ? 'text-sky-400' : 'text-neutral-500'}`}>{h.party === 'third' ? '3rd' : h.party === 'cdn' ? 'CDN' : '1st'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{h.requests}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums text-neutral-400">{h.bytes ? fmtBytes(h.bytes) : '—'}</td>
                         <td className="px-3 py-1.5 text-neutral-500">{h.types.join(', ')}</td>
@@ -764,8 +795,10 @@ export default function SiteDetail() {
                   </table>
                 </div>
               )}
-            <p className="mt-2 text-xs text-neutral-600">External domains the page requests, grouped by host (third-party in amber, sorted heaviest first). “hint” = preconnect/dns-prefetch (no bytes). Sizes are best-effort (some hosts omit Content-Length). Read-only.</p>
+            <p className="mt-2 text-xs text-neutral-600"><span className="text-amber-400">3rd</span> = genuine external services (your worklist — remove/defer). <span className="text-sky-400">CDN</span> = your own assets on a known CDN (leave alone; optimize in Images/Scripts). 1st = your server. “hint” = preconnect/dns-prefetch. Sizes best-effort. Read-only.</p>
           </div>
+        </div>
+      )}
         </div>
       )}
 
