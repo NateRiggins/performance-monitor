@@ -18,6 +18,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="text-neutral-300 hover:text-white">Dashboard</Link>
             <Link href="/settings" className="text-neutral-300 hover:text-white">Settings</Link>
           </nav>
+          <form action="/auth/signout" method="post" className="ml-auto">
+            <button type="submit" className="text-sm text-neutral-400 hover:text-white">Sign out</button>
+          </form>
         </header>
         <main className="flex-1 p-5">{children}</main>
         <SuiteFooter />
