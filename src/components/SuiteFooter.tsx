@@ -7,8 +7,7 @@ const LINKS = [
   { name: 'Crawlers', url: 'https://crawl-monitor-eta.vercel.app/', icon: '🕷️' },
   { name: 'Buckets', url: 'https://bucket-manager-lime.vercel.app/', icon: '🪣' },
   { name: 'SWAT', url: 'https://swat-omega.vercel.app/', icon: '🛰️' },
-  { name: 'AMG Suite', url: 'https://abstraktmg.github.io/amg-docs/', icon: '📚' },
-  { name: 'Developer SOPs', url: 'https://developer-sops.vercel.app/', icon: '📘' },
+  { name: 'Launch Pad', url: 'https://launch-pad-blue.vercel.app/', icon: '🚀' },
 ];
 
 export default function SuiteFooter() {
