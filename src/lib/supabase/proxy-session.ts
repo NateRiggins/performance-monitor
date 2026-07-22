@@ -35,10 +35,19 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith('/login') || path.startsWith('/auth');
-  // API routes self-authenticate and must never be redirected to the HTML login page.
   const isApi = path.startsWith('/api');
+  // /api/cron/* authenticates itself via CRON_SECRET (a Bearer token, not a session cookie) —
+  // must stay excluded here or Vercel Cron's requests would get 401'd before ever reaching it.
+  const isCron = path.startsWith('/api/cron');
 
-  if (!user && !isAuthRoute && !isApi) {
+  if (!user && isApi && !isCron) {
+    // Other API routes can't be redirected to an HTML login page — return 401 instead of the
+    // previous behavior (skipping the check entirely, which left every non-cron API route
+    // open to unauthenticated requests).
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!user && !isAuthRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
